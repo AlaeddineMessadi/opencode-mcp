@@ -78,13 +78,16 @@ export class OpenCodeClient {
     return url.toString();
   }
 
-  private headers(accept?: string): Record<string, string> {
+  private headers(accept?: string, directory?: string): Record<string, string> {
     const h: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: accept ?? "application/json",
     };
     if (this.authHeader) {
       h["Authorization"] = this.authHeader;
+    }
+    if (directory) {
+      h["x-opencode-directory"] = directory;
     }
     return h;
   }
@@ -96,6 +99,7 @@ export class OpenCodeClient {
       query?: Record<string, string>;
       body?: unknown;
       timeout?: number;
+      directory?: string;
     },
   ): Promise<T> {
     const url = this.buildUrl(path, opts?.query);
@@ -115,7 +119,7 @@ export class OpenCodeClient {
 
         const res = await fetch(url, {
           method,
-          headers: this.headers(),
+          headers: this.headers(undefined, opts?.directory),
           body:
             opts?.body !== undefined ? JSON.stringify(opts.body) : undefined,
           signal: controller.signal,
@@ -163,31 +167,45 @@ export class OpenCodeClient {
   async get<T = unknown>(
     path: string,
     query?: Record<string, string>,
+    directory?: string,
   ): Promise<T> {
-    return this.request<T>("GET", path, { query });
+    return this.request<T>("GET", path, { query, directory });
   }
 
   async post<T = unknown>(
     path: string,
     body?: unknown,
-    opts?: { timeout?: number },
+    opts?: { timeout?: number; directory?: string },
   ): Promise<T> {
-    return this.request<T>("POST", path, { body, timeout: opts?.timeout });
+    return this.request<T>("POST", path, {
+      body,
+      timeout: opts?.timeout,
+      directory: opts?.directory,
+    });
   }
 
-  async patch<T = unknown>(path: string, body?: unknown): Promise<T> {
-    return this.request<T>("PATCH", path, { body });
+  async patch<T = unknown>(
+    path: string,
+    body?: unknown,
+    directory?: string,
+  ): Promise<T> {
+    return this.request<T>("PATCH", path, { body, directory });
   }
 
-  async put<T = unknown>(path: string, body?: unknown): Promise<T> {
-    return this.request<T>("PUT", path, { body });
+  async put<T = unknown>(
+    path: string,
+    body?: unknown,
+    directory?: string,
+  ): Promise<T> {
+    return this.request<T>("PUT", path, { body, directory });
   }
 
   async delete<T = unknown>(
     path: string,
     query?: Record<string, string>,
+    directory?: string,
   ): Promise<T> {
-    return this.request<T>("DELETE", path, { query });
+    return this.request<T>("DELETE", path, { query, directory });
   }
 
   /**

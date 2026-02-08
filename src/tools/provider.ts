@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { OpenCodeClient } from "../client.js";
-import { toolJson, toolError, toolResult } from "../helpers.js";
+import { toolJson, toolError, toolResult, directoryParam } from "../helpers.js";
 
 export function registerProviderTools(
   server: McpServer,
@@ -10,10 +10,12 @@ export function registerProviderTools(
   server.tool(
     "opencode_provider_list",
     "List all providers, default models, and connected providers",
-    {},
-    async () => {
+    {
+      directory: directoryParam,
+    },
+    async ({ directory }) => {
       try {
-        return toolJson(await client.get("/provider"));
+        return toolJson(await client.get("/provider", undefined, directory));
       } catch (e) {
         return toolError(e);
       }
@@ -23,15 +25,20 @@ export function registerProviderTools(
   server.tool(
     "opencode_provider_auth_methods",
     "Get available authentication methods for all providers",
-    {},
-    async () => {
+    {
+      directory: directoryParam,
+    },
+    async ({ directory }) => {
       try {
-        return toolJson(await client.get("/provider/auth"));
+        return toolJson(await client.get("/provider/auth", undefined, directory));
       } catch (e) {
         return toolError(e);
       }
     },
   );
+
+  // Auth routes run OUTSIDE the directory middleware in the OpenCode server,
+  // so these tools do not accept a directory parameter.
 
   server.tool(
     "opencode_provider_oauth_authorize",
@@ -74,7 +81,7 @@ export function registerProviderTools(
 
   server.tool(
     "opencode_auth_set",
-    "Set authentication credentials for a provider (e.g. API key)",
+    "Set authentication credentials for a provider (e.g. API key). Credentials are stored globally and shared across all projects.",
     {
       providerId: z.string().describe("Provider ID (e.g. 'anthropic')"),
       type: z.string().describe("Auth type (e.g. 'api')"),

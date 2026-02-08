@@ -8,6 +8,7 @@ import {
   toolResult,
   toolError,
   toolJson,
+  directoryParam,
 } from "../src/helpers.js";
 
 // ─── formatMessageResponse ───────────────────────────────────────────────
@@ -319,5 +320,30 @@ describe("toolJson", () => {
     const result = toolJson([1, 2, 3]);
     expect(result.content[0].text).toContain("[");
     expect(result.content[0].text).toContain("1");
+  });
+});
+
+// ─── directoryParam ─────────────────────────────────────────────────────
+
+describe("directoryParam", () => {
+  it("is a zod schema that accepts strings", () => {
+    const result = directoryParam.safeParse("/home/user/project");
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toBe("/home/user/project");
+    }
+  });
+
+  it("accepts undefined (optional)", () => {
+    const result = directoryParam.safeParse(undefined);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toBeUndefined();
+    }
+  });
+
+  it("rejects non-string values", () => {
+    const result = directoryParam.safeParse(123);
+    expect(result.success).toBe(false);
   });
 });

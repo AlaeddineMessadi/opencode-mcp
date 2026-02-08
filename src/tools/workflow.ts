@@ -12,12 +12,100 @@ import {
   formatSessionList,
   toolResult,
   toolError,
+  directoryParam,
 } from "../helpers.js";
 
 export function registerWorkflowTools(
   server: McpServer,
   client: OpenCodeClient,
 ) {
+  // ─── Setup / onboarding ───────────────────────────────────────────
+  server.tool(
+    "opencode_setup",
+    "Check OpenCode status, provider configuration, and optionally initialize a project directory. Use this as the first step when starting work — it tells you what is ready and what still needs configuration.",
+    {
+      directory: directoryParam,
+    },
+    async ({ directory }) => {
+      try {
+        const sections: string[] = [];
+
+        // 1. Health check
+        let healthy = false;
+        try {
+          const health = (await client.get("/global/health", undefined, directory)) as Record<string, unknown>;
+          healthy = true;
+          sections.push(
+            `## Server\nStatus: healthy\nVersion: ${health.version ?? "unknown"}`,
+          );
+        } catch (e) {
+          sections.push(
+            `## Server\nStatus: UNREACHABLE — is \`opencode serve\` running?\nError: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        }
+
+        if (!healthy) {
+          return toolResult(sections.join("\n\n"));
+        }
+
+        // 2. Providers — which are connected?
+        try {
+          const providers = (await client.get("/provider", undefined, directory)) as Array<Record<string, unknown>>;
+          if (providers && providers.length > 0) {
+            const lines = providers.map((p) => {
+              const id = p.id ?? p.name ?? "?";
+              const models = p.models as Array<Record<string, unknown>> | undefined;
+              const defaultModel = models && models.length > 0
+                ? (models[0].id ?? models[0].name ?? "?")
+                : "no models";
+              // Check if provider has auth configured
+              const connected = p.connected ?? p.authenticated ?? p.status === "connected";
+              const status = connected ? "connected" : "NOT CONFIGURED";
+              return `- ${id}: ${status}${connected ? ` (${defaultModel})` : " — use opencode_auth_set to add API key"}`;
+            });
+            sections.push(`## Providers\n${lines.join("\n")}`);
+          } else {
+            sections.push("## Providers\nNo providers found.");
+          }
+        } catch {
+          sections.push("## Providers\nCould not fetch provider list.");
+        }
+
+        // 3. Project info (if directory given or from default)
+        try {
+          const project = (await client.get("/project/current", undefined, directory)) as Record<string, unknown>;
+          const name = project.name ?? project.id ?? "unknown";
+          const worktree = project.worktree ?? "unknown";
+          const vcs = project.vcs ?? "none";
+          sections.push(
+            `## Project\nName: ${name}\nPath: ${worktree}\nVCS: ${vcs}`,
+          );
+        } catch {
+          if (directory) {
+            sections.push(
+              `## Project\nDirectory: ${directory}\nNote: Could not load project info. Make sure the directory exists and contains a git repository.`,
+            );
+          } else {
+            sections.push(
+              "## Project\nNo project context available (no directory specified and server has no default project).",
+            );
+          }
+        }
+
+        // 4. Next steps guidance
+        const tips: string[] = [];
+        tips.push("- Use `opencode_ask` with a `directory` parameter to start working on a project");
+        tips.push("- Use `opencode_auth_set` to configure API keys for providers");
+        tips.push("- Use `opencode_context` to get full project context (config, VCS, agents)");
+        sections.push(`## Next Steps\n${tips.join("\n")}`);
+
+        return toolResult(sections.join("\n\n"));
+      } catch (e) {
+        return toolError(e);
+      }
+    },
+  );
+
   // ─── One-shot: create session + send prompt + return answer ─────────
   server.tool(
     "opencode_ask",
@@ -44,13 +132,14 @@ export function registerWorkflowTools(
         .string()
         .optional()
         .describe("Optional system prompt override"),
+      directory: directoryParam,
     },
-    async ({ prompt, title, providerID, modelID, agent, system }) => {
+    async ({ prompt, title, providerID, modelID, agent, system, directory }) => {
       try {
         // 1. Create session
         const session = (await client.post("/session", {
           title: title ?? prompt.slice(0, 80),
-        })) as Record<string, unknown>;
+        }, { directory })) as Record<string, unknown>;
         const sessionId = session.id as string;
 
         // 2. Send prompt
@@ -66,6 +155,7 @@ export function registerWorkflowTools(
         const response = await client.post(
           `/session/${sessionId}/message`,
           body,
+          { directory },
         );
 
         // 3. Format and return
@@ -89,8 +179,9 @@ export function registerWorkflowTools(
       providerID: z.string().optional().describe("Provider ID"),
       modelID: z.string().optional().describe("Model ID"),
       agent: z.string().optional().describe("Agent to use"),
+      directory: directoryParam,
     },
-    async ({ sessionId, prompt, providerID, modelID, agent }) => {
+    async ({ sessionId, prompt, providerID, modelID, agent, directory }) => {
       try {
         const body: Record<string, unknown> = {
           parts: [{ type: "text", text: prompt }],
@@ -103,6 +194,7 @@ export function registerWorkflowTools(
         const response = await client.post(
           `/session/${sessionId}/message`,
           body,
+          { directory },
         );
         const formatted = formatMessageResponse(response);
         return toolResult(formatted);
@@ -122,14 +214,16 @@ export function registerWorkflowTools(
         .number()
         .optional()
         .describe("Max messages to return (default: all)"),
+      directory: directoryParam,
     },
-    async ({ sessionId, limit }) => {
+    async ({ sessionId, limit, directory }) => {
       try {
         const query: Record<string, string> = {};
         if (limit !== undefined) query.limit = String(limit);
         const messages = await client.get(
           `/session/${sessionId}/message`,
           query,
+          directory,
         );
         const formatted = formatMessageList(
           messages as unknown[],
@@ -145,12 +239,14 @@ export function registerWorkflowTools(
   server.tool(
     "opencode_sessions_overview",
     "Get a quick overview of all sessions with their titles and status. Useful to find which session to continue working in.",
-    {},
-    async () => {
+    {
+      directory: directoryParam,
+    },
+    async ({ directory }) => {
       try {
         const [sessions, statuses] = await Promise.all([
-          client.get("/session") as Promise<Array<Record<string, unknown>>>,
-          client.get("/session/status") as Promise<Record<string, unknown>>,
+          client.get("/session", undefined, directory) as Promise<Array<Record<string, unknown>>>,
+          client.get("/session/status", undefined, directory) as Promise<Record<string, unknown>>,
         ]);
 
         // Merge status into session info
@@ -171,15 +267,17 @@ export function registerWorkflowTools(
   server.tool(
     "opencode_context",
     "Get full project context in one call: current project, path, VCS info, config, and available agents. Useful to understand the current state before starting work.",
-    {},
-    async () => {
+    {
+      directory: directoryParam,
+    },
+    async ({ directory }) => {
       try {
         const [project, path, vcs, config, agents] = await Promise.all([
-          client.get("/project/current").catch(() => null),
-          client.get("/path").catch(() => null),
-          client.get("/vcs").catch(() => null),
-          client.get("/config").catch(() => null),
-          client.get("/agent").catch(() => null),
+          client.get("/project/current", undefined, directory).catch(() => null),
+          client.get("/path", undefined, directory).catch(() => null),
+          client.get("/vcs", undefined, directory).catch(() => null),
+          client.get("/config", undefined, directory).catch(() => null),
+          client.get("/agent", undefined, directory).catch(() => null),
         ]);
 
         const sections: string[] = [];
@@ -230,15 +328,16 @@ export function registerWorkflowTools(
         .number()
         .optional()
         .describe("Polling interval in ms (default: 2000)"),
+      directory: directoryParam,
     },
-    async ({ sessionId, timeoutSeconds, pollIntervalMs }) => {
+    async ({ sessionId, timeoutSeconds, pollIntervalMs, directory }) => {
       try {
         const timeout = (timeoutSeconds ?? 120) * 1000;
         const interval = pollIntervalMs ?? 2000;
         const start = Date.now();
 
         while (Date.now() - start < timeout) {
-          const statuses = (await client.get("/session/status")) as Record<
+          const statuses = (await client.get("/session/status", undefined, directory)) as Record<
             string,
             unknown
           >;
@@ -249,6 +348,7 @@ export function registerWorkflowTools(
             const messages = await client.get(
               `/session/${sessionId}/message`,
               { limit: "1" },
+              directory,
             );
             const arr = messages as unknown[];
             if (arr.length > 0) {
@@ -286,12 +386,13 @@ export function registerWorkflowTools(
         .string()
         .optional()
         .describe("Specific message ID to get diff for"),
+      directory: directoryParam,
     },
-    async ({ sessionId, messageID }) => {
+    async ({ sessionId, messageID, directory }) => {
       try {
         const query: Record<string, string> = {};
         if (messageID) query.messageID = messageID;
-        const diffs = await client.get(`/session/${sessionId}/diff`, query);
+        const diffs = await client.get(`/session/${sessionId}/diff`, query, directory);
         const { formatDiffResponse } = await import("../helpers.js");
         return toolResult(formatDiffResponse(diffs as unknown[]));
       } catch (e) {

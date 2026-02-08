@@ -1,16 +1,18 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { OpenCodeClient } from "../client.js";
-import { toolJson, toolError } from "../helpers.js";
+import { toolJson, toolError, directoryParam } from "../helpers.js";
 
 export function registerConfigTools(server: McpServer, client: OpenCodeClient) {
   server.tool(
     "opencode_config_get",
     "Get the current opencode configuration",
-    {},
-    async () => {
+    {
+      directory: directoryParam,
+    },
+    async ({ directory }) => {
       try {
-        return toolJson(await client.get("/config"));
+        return toolJson(await client.get("/config", undefined, directory));
       } catch (e) {
         return toolError(e);
       }
@@ -24,10 +26,11 @@ export function registerConfigTools(server: McpServer, client: OpenCodeClient) {
       config: z
         .record(z.string(), z.unknown())
         .describe("Partial config object with fields to update"),
+      directory: directoryParam,
     },
-    async ({ config }) => {
+    async ({ config, directory }) => {
       try {
-        return toolJson(await client.patch("/config", config));
+        return toolJson(await client.patch("/config", config, directory));
       } catch (e) {
         return toolError(e);
       }
@@ -37,10 +40,12 @@ export function registerConfigTools(server: McpServer, client: OpenCodeClient) {
   server.tool(
     "opencode_config_providers",
     "List all configured providers and their default models",
-    {},
-    async () => {
+    {
+      directory: directoryParam,
+    },
+    async ({ directory }) => {
       try {
-        return toolJson(await client.get("/config/providers"));
+        return toolJson(await client.get("/config/providers", undefined, directory));
       } catch (e) {
         return toolError(e);
       }

@@ -6,7 +6,23 @@
  * about them efficiently.
  */
 
+import { z } from "zod";
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+/**
+ * Shared Zod parameter for project directory targeting.
+ * When provided, sent as the x-opencode-directory header so the
+ * OpenCode server scopes the request to that project.
+ */
+export const directoryParam = z
+  .string()
+  .optional()
+  .describe(
+    "Absolute path to the project directory. " +
+      "When provided, the request targets that project. " +
+      "If omitted, the OpenCode server uses its own working directory.",
+  );
 
 /**
  * Extract a human-readable summary from a message response.

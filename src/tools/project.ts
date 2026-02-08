@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { OpenCodeClient } from "../client.js";
-import { toolJson, toolError } from "../helpers.js";
+import { toolJson, toolError, directoryParam } from "../helpers.js";
 
 export function registerProjectTools(
   server: McpServer,
@@ -9,10 +9,12 @@ export function registerProjectTools(
   server.tool(
     "opencode_project_list",
     "List all projects known to the opencode server",
-    {},
-    async () => {
+    {
+      directory: directoryParam,
+    },
+    async ({ directory }) => {
       try {
-        return toolJson(await client.get("/project"));
+        return toolJson(await client.get("/project", undefined, directory));
       } catch (e) {
         return toolError(e);
       }
@@ -22,10 +24,12 @@ export function registerProjectTools(
   server.tool(
     "opencode_project_current",
     "Get the current active project",
-    {},
-    async () => {
+    {
+      directory: directoryParam,
+    },
+    async ({ directory }) => {
       try {
-        return toolJson(await client.get("/project/current"));
+        return toolJson(await client.get("/project/current", undefined, directory));
       } catch (e) {
         return toolError(e);
       }

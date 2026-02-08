@@ -54,14 +54,15 @@ const client = new OpenCodeClient({ baseUrl, username, password });
 
 const server = new McpServer({
   name: "opencode-mcp",
-  version: "1.1.0",
+  version: "1.2.0",
   description:
     "Full-featured MCP server wrapping the OpenCode AI headless HTTP server. " +
-    "Provides 60+ tools, resources, and prompts to manage sessions, send " +
+    "Provides 70+ tools, resources, and prompts to manage sessions, send " +
     "prompts, search files, configure providers, control the TUI, monitor " +
     "events, and interact with the full OpenCode API. " +
-    "Start with opencode_ask for one-shot questions, or opencode_context " +
-    "to understand the current project.",
+    "All tools support a directory parameter for multi-project workflows. " +
+    "Start with opencode_setup for onboarding, opencode_ask for one-shot " +
+    "questions, or opencode_context to understand the current project.",
 });
 
 // ── Low-level API tools ─────────────────────────────────────────────
@@ -94,7 +95,7 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error(
-    `opencode-mcp v1.0.2 started (connecting to OpenCode at ${baseUrl})`,
+    `opencode-mcp v1.2.0 started (connecting to OpenCode at ${baseUrl})`,
   );
 }
 

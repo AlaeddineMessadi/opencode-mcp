@@ -7,7 +7,7 @@
 
 An [MCP](https://modelcontextprotocol.io/) server that gives any MCP-compatible client full access to a running [OpenCode](https://opencode.ai/) instance. Manage sessions, send prompts, search files, review diffs, configure providers, control the TUI, and more.
 
-**70 tools** | **10 resources** | **5 prompts**
+**71 tools** | **10 resources** | **5 prompts** | **Multi-project support**
 
 ## Quick Start
 
@@ -169,6 +169,7 @@ High-level tools designed to be the easiest way for an LLM to interact with Open
 
 | Tool | What it does |
 |---|---|
+| `opencode_setup` | Check server health, provider config, and project status — use as first step |
 | `opencode_ask` | Create session + send prompt + get answer in one call |
 | `opencode_reply` | Follow-up message in an existing session |
 | `opencode_conversation` | Formatted conversation history |
@@ -251,6 +252,41 @@ MCP Client  <--stdio-->  opencode-mcp  <--HTTP-->  OpenCode Server
 
 The MCP server communicates over **stdio** using the Model Context Protocol. When a client invokes a tool, the server translates it into HTTP calls against the OpenCode headless API. The OpenCode server must be running separately (`opencode serve`).
 
+## Working with Multiple Projects
+
+Every tool accepts an optional `directory` parameter that targets a specific project directory. This lets you work on multiple projects from a single OpenCode server without restarting anything.
+
+```
+# First-time setup: check server status and configure providers
+opencode_setup()
+
+# Set an API key (one-time, global — shared across all projects)
+opencode_auth_set({ providerId: "anthropic", type: "api", key: "sk-ant-..." })
+
+# Work on a mobile app
+opencode_ask({
+  directory: "/home/user/projects/mobile-app",
+  prompt: "Set up navigation with React Navigation"
+})
+
+# Switch to a web app — same server, different directory
+opencode_ask({
+  directory: "/home/user/projects/web-app",
+  prompt: "Add authentication to the Next.js app"
+})
+
+# Go back to the mobile app — no restart needed
+opencode_reply({
+  directory: "/home/user/projects/mobile-app",
+  sessionId: "sess_abc123",
+  prompt: "Now add a login screen"
+})
+```
+
+When `directory` is omitted, the OpenCode server uses its own working directory (where `opencode serve` was started).
+
+**How it works internally:** The `directory` parameter is sent as the `x-opencode-directory` HTTP header. The OpenCode server lazily initializes a separate instance per directory (with its own LSP, VCS, MCP servers, sessions, etc.) and caches them in memory.
+
 ## Architecture
 
 ```
@@ -261,7 +297,7 @@ src/
   resources.ts          MCP Resources (10 browseable data endpoints)
   prompts.ts            MCP Prompts (5 guided workflow templates)
   tools/
-    workflow.ts         High-level workflow tools (7)
+    workflow.ts         High-level workflow tools (8)
     session.ts          Session management tools (18)
     message.ts          Message/prompt tools (6)
     file.ts             File and search tools (6)
@@ -289,7 +325,7 @@ npm run dev      # watch mode
 
 - [Getting Started](docs/getting-started.md) — step-by-step setup guide
 - [Configuration](docs/configuration.md) — all env vars and MCP client configs
-- [Tools Reference](docs/tools.md) — detailed reference for all 70 tools
+- [Tools Reference](docs/tools.md) — detailed reference for all 71 tools
 - [Resources Reference](docs/resources.md) — all 10 MCP resources
 - [Prompts Reference](docs/prompts.md) — all 5 MCP prompts
 - [Usage Examples](docs/examples.md) — real workflow examples

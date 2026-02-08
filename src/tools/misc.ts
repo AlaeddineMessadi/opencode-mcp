@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { OpenCodeClient } from "../client.js";
-import { toolJson, toolError, toolResult } from "../helpers.js";
+import { toolJson, toolError, toolResult, directoryParam } from "../helpers.js";
 
 export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
   // --- Path & VCS ---
@@ -9,10 +9,12 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
   server.tool(
     "opencode_path_get",
     "Get the current working path of the opencode server",
-    {},
-    async () => {
+    {
+      directory: directoryParam,
+    },
+    async ({ directory }) => {
       try {
-        return toolJson(await client.get("/path"));
+        return toolJson(await client.get("/path", undefined, directory));
       } catch (e) {
         return toolError(e);
       }
@@ -22,10 +24,12 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
   server.tool(
     "opencode_vcs_info",
     "Get VCS (version control) info for the current project (branch, remote, status)",
-    {},
-    async () => {
+    {
+      directory: directoryParam,
+    },
+    async ({ directory }) => {
       try {
-        return toolJson(await client.get("/vcs"));
+        return toolJson(await client.get("/vcs", undefined, directory));
       } catch (e) {
         return toolError(e);
       }
@@ -37,10 +41,12 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
   server.tool(
     "opencode_instance_dispose",
     "Dispose the current opencode instance (shuts it down)",
-    {},
-    async () => {
+    {
+      directory: directoryParam,
+    },
+    async ({ directory }) => {
       try {
-        await client.post("/instance/dispose");
+        await client.post("/instance/dispose", undefined, { directory });
         return toolResult("Instance disposed.");
       } catch (e) {
         return toolError(e);
@@ -53,10 +59,12 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
   server.tool(
     "opencode_agent_list",
     "List all available agents with their names, descriptions, and modes (primary/subagent)",
-    {},
-    async () => {
+    {
+      directory: directoryParam,
+    },
+    async ({ directory }) => {
       try {
-        const agents = (await client.get("/agent")) as Array<Record<string, unknown>>;
+        const agents = (await client.get("/agent", undefined, directory)) as Array<Record<string, unknown>>;
         if (!agents || agents.length === 0) {
           return toolResult("No agents found.");
         }
@@ -78,10 +86,12 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
   server.tool(
     "opencode_command_list",
     "List all available commands (built-in and custom slash commands)",
-    {},
-    async () => {
+    {
+      directory: directoryParam,
+    },
+    async ({ directory }) => {
       try {
-        return toolJson(await client.get("/command"));
+        return toolJson(await client.get("/command", undefined, directory));
       } catch (e) {
         return toolError(e);
       }
@@ -93,10 +103,12 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
   server.tool(
     "opencode_lsp_status",
     "Get the status of LSP (Language Server Protocol) servers",
-    {},
-    async () => {
+    {
+      directory: directoryParam,
+    },
+    async ({ directory }) => {
       try {
-        return toolJson(await client.get("/lsp"));
+        return toolJson(await client.get("/lsp", undefined, directory));
       } catch (e) {
         return toolError(e);
       }
@@ -108,10 +120,12 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
   server.tool(
     "opencode_formatter_status",
     "Get the status of configured formatters",
-    {},
-    async () => {
+    {
+      directory: directoryParam,
+    },
+    async ({ directory }) => {
       try {
-        return toolJson(await client.get("/formatter"));
+        return toolJson(await client.get("/formatter", undefined, directory));
       } catch (e) {
         return toolError(e);
       }
@@ -123,10 +137,12 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
   server.tool(
     "opencode_mcp_status",
     "Get the status of all MCP servers configured in opencode",
-    {},
-    async () => {
+    {
+      directory: directoryParam,
+    },
+    async ({ directory }) => {
       try {
-        return toolJson(await client.get("/mcp"));
+        return toolJson(await client.get("/mcp", undefined, directory));
       } catch (e) {
         return toolError(e);
       }
@@ -141,10 +157,11 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
       config: z
         .record(z.string(), z.unknown())
         .describe("MCP server configuration object"),
+      directory: directoryParam,
     },
-    async ({ name, config }) => {
+    async ({ name, config, directory }) => {
       try {
-        return toolJson(await client.post("/mcp", { name, config }));
+        return toolJson(await client.post("/mcp", { name, config }, { directory }));
       } catch (e) {
         return toolError(e);
       }
@@ -156,10 +173,12 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
   server.tool(
     "opencode_tool_ids",
     "List all available tool IDs that the LLM can use (experimental)",
-    {},
-    async () => {
+    {
+      directory: directoryParam,
+    },
+    async ({ directory }) => {
       try {
-        return toolJson(await client.get("/experimental/tool/ids"));
+        return toolJson(await client.get("/experimental/tool/ids", undefined, directory));
       } catch (e) {
         return toolError(e);
       }
@@ -172,11 +191,12 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
     {
       provider: z.string().describe("Provider ID"),
       model: z.string().describe("Model ID"),
+      directory: directoryParam,
     },
-    async ({ provider, model }) => {
+    async ({ provider, model, directory }) => {
       try {
         return toolJson(
-          await client.get("/experimental/tool", { provider, model }),
+          await client.get("/experimental/tool", { provider, model }, directory),
         );
       } catch (e) {
         return toolError(e);
@@ -199,12 +219,13 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
         .record(z.string(), z.unknown())
         .optional()
         .describe("Extra data to include in the log entry"),
+      directory: directoryParam,
     },
-    async ({ service, level, message, extra }) => {
+    async ({ service, level, message, extra, directory }) => {
       try {
         const body: Record<string, unknown> = { service, level, message };
         if (extra) body.extra = extra;
-        await client.post("/log", body);
+        await client.post("/log", body, { directory });
         return toolResult(`Log entry written [${level}] ${service}: ${message}`);
       } catch (e) {
         return toolError(e);

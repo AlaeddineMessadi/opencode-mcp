@@ -48,9 +48,10 @@ describe("Tool registration", () => {
   });
 
   describe("registerWorkflowTools", () => {
-    it("registers all 7 workflow tools", () => {
+    it("registers all 8 workflow tools", () => {
       const { tools } = captureTools(registerWorkflowTools);
       const expected = [
+        "opencode_setup",
         "opencode_ask",
         "opencode_reply",
         "opencode_conversation",
@@ -62,7 +63,7 @@ describe("Tool registration", () => {
       for (const name of expected) {
         expect(tools.has(name), `Missing tool: ${name}`).toBe(true);
       }
-      expect(tools.size).toBe(7);
+      expect(tools.size).toBe(8);
     });
   });
 
@@ -271,6 +272,115 @@ describe("Tool handlers", () => {
       // Should not error out — partial results are ok
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain("proj");
+    });
+  });
+
+  describe("opencode_setup", () => {
+    it("returns health, providers, and project info", async () => {
+      const mockClient = createMockClient({
+        get: vi.fn().mockImplementation((path: string) => {
+          if (path === "/global/health") return Promise.resolve({ version: "0.2.0" });
+          if (path === "/provider") return Promise.resolve([
+            { id: "anthropic", connected: true, models: [{ id: "claude-sonnet-4-20250514" }] },
+            { id: "openai", connected: false, models: [] },
+          ]);
+          if (path === "/project/current") return Promise.resolve({ name: "my-app", worktree: "/home/user/my-app", vcs: "git" });
+          return Promise.resolve({});
+        }),
+      });
+      const tools = new Map<string, Function>();
+      const mockServer = {
+        tool: vi.fn((_n: string, _d: string, _s: unknown, h: Function) => {
+          tools.set(_n, h);
+        }),
+      } as unknown as McpServer;
+      registerWorkflowTools(mockServer, mockClient);
+
+      const handler = tools.get("opencode_setup")!;
+      const result = await handler({});
+      const text = result.content[0].text;
+      expect(text).toContain("healthy");
+      expect(text).toContain("0.2.0");
+      expect(text).toContain("anthropic");
+      expect(text).toContain("connected");
+      expect(text).toContain("NOT CONFIGURED");
+      expect(text).toContain("my-app");
+      expect(text).toContain("Next Steps");
+    });
+
+    it("reports unreachable server", async () => {
+      const mockClient = createMockClient({
+        get: vi.fn().mockRejectedValue(new Error("ECONNREFUSED")),
+      });
+      const tools = new Map<string, Function>();
+      const mockServer = {
+        tool: vi.fn((_n: string, _d: string, _s: unknown, h: Function) => {
+          tools.set(_n, h);
+        }),
+      } as unknown as McpServer;
+      registerWorkflowTools(mockServer, mockClient);
+
+      const handler = tools.get("opencode_setup")!;
+      const result = await handler({});
+      const text = result.content[0].text;
+      expect(text).toContain("UNREACHABLE");
+      expect(text).toContain("ECONNREFUSED");
+      // Should not contain provider or project sections
+      expect(text).not.toContain("## Providers");
+    });
+  });
+
+  describe("directory parameter propagation", () => {
+    it("passes directory to client.get in opencode_health", async () => {
+      const getMock = vi.fn().mockResolvedValue({ status: "ok" });
+      const mockClient = createMockClient({ get: getMock });
+      const tools = new Map<string, Function>();
+      const mockServer = {
+        tool: vi.fn((_n: string, _d: string, _s: unknown, h: Function) => {
+          tools.set(_n, h);
+        }),
+      } as unknown as McpServer;
+      registerGlobalTools(mockServer, mockClient);
+
+      const handler = tools.get("opencode_health")!;
+      await handler({ directory: "/home/user/project-a" });
+      expect(getMock).toHaveBeenCalledWith("/global/health", undefined, "/home/user/project-a");
+    });
+
+    it("passes directory to client.post in opencode_ask", async () => {
+      const postMock = vi.fn()
+        .mockResolvedValueOnce({ id: "s1" })
+        .mockResolvedValueOnce({ info: { id: "m1", role: "assistant" }, parts: [{ type: "text", text: "ok" }] });
+      const mockClient = createMockClient({ post: postMock });
+      const tools = new Map<string, Function>();
+      const mockServer = {
+        tool: vi.fn((_n: string, _d: string, _s: unknown, h: Function) => {
+          tools.set(_n, h);
+        }),
+      } as unknown as McpServer;
+      registerWorkflowTools(mockServer, mockClient);
+
+      const handler = tools.get("opencode_ask")!;
+      await handler({ prompt: "hello", directory: "/srv/web-app" });
+      // Both calls should include directory
+      expect(postMock.mock.calls[0][2]).toEqual({ directory: "/srv/web-app" });
+      expect(postMock.mock.calls[1][2]).toEqual({ directory: "/srv/web-app" });
+    });
+
+    it("passes undefined directory when not provided", async () => {
+      const getMock = vi.fn().mockResolvedValue({ status: "ok" });
+      const mockClient = createMockClient({ get: getMock });
+      const tools = new Map<string, Function>();
+      const mockServer = {
+        tool: vi.fn((_n: string, _d: string, _s: unknown, h: Function) => {
+          tools.set(_n, h);
+        }),
+      } as unknown as McpServer;
+      registerGlobalTools(mockServer, mockClient);
+
+      const handler = tools.get("opencode_health")!;
+      await handler({});
+      expect(getMock).toHaveBeenCalledWith("/global/health", undefined, undefined);
     });
   });
 });

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { OpenCodeClient } from "../client.js";
-import { toolJson, toolError, toolResult } from "../helpers.js";
+import { toolJson, toolError, toolResult, directoryParam } from "../helpers.js";
 
 export function registerFileTools(server: McpServer, client: OpenCodeClient) {
   server.tool(
@@ -11,14 +11,14 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
       pattern: z
         .string()
         .describe("Text or regex pattern to search for in files"),
+      directory: directoryParam,
     },
-    async ({ pattern }) => {
+    async ({ pattern, directory }) => {
       try {
-        const results = (await client.get("/find", { pattern })) as Array<Record<string, unknown>>;
+        const results = (await client.get("/find", { pattern }, directory)) as Array<Record<string, unknown>>;
         if (!results || results.length === 0) {
           return toolResult(`No matches found for pattern: ${pattern}`);
         }
-        // Format results for readability
         const formatted = results.map((r) => {
           const path = r.path ?? "";
           const lineNum = r.line_number ?? "?";
@@ -41,7 +41,7 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
         .enum(["file", "directory"])
         .optional()
         .describe("Limit results to 'file' or 'directory'"),
-      directory: z
+      searchDirectory: z
         .string()
         .optional()
         .describe("Override the project root for the search"),
@@ -49,14 +49,15 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
         .number()
         .optional()
         .describe("Max number of results (1-200)"),
+      directory: directoryParam,
     },
-    async ({ query, type, directory, limit }) => {
+    async ({ query, type, searchDirectory, limit, directory }) => {
       try {
         const q: Record<string, string> = { query };
         if (type) q.type = type;
-        if (directory) q.directory = directory;
+        if (searchDirectory) q.directory = searchDirectory;
         if (limit !== undefined) q.limit = String(limit);
-        const files = (await client.get("/find/file", q)) as string[];
+        const files = (await client.get("/find/file", q, directory)) as string[];
         if (!files || files.length === 0) {
           return toolResult(`No files found matching: ${query}`);
         }
@@ -72,10 +73,11 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
     "Find workspace symbols by name (functions, classes, variables, etc.)",
     {
       query: z.string().describe("Symbol name to search for"),
+      directory: directoryParam,
     },
-    async ({ query }) => {
+    async ({ query, directory }) => {
       try {
-        return toolJson(await client.get("/find/symbol", { query }));
+        return toolJson(await client.get("/find/symbol", { query }, directory));
       } catch (e) {
         return toolError(e);
       }
@@ -90,12 +92,13 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
         .string()
         .optional()
         .describe("Path to list (defaults to project root)"),
+      directory: directoryParam,
     },
-    async ({ path }) => {
+    async ({ path, directory }) => {
       try {
         const q: Record<string, string> = {};
         if (path) q.path = path;
-        const nodes = (await client.get("/file", q)) as Array<Record<string, unknown>>;
+        const nodes = (await client.get("/file", q, directory)) as Array<Record<string, unknown>>;
         if (!nodes || nodes.length === 0) {
           return toolResult("Empty directory.");
         }
@@ -115,11 +118,11 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
     "Read the content of a file",
     {
       path: z.string().describe("File path to read"),
+      directory: directoryParam,
     },
-    async ({ path }) => {
+    async ({ path, directory }) => {
       try {
-        const result = (await client.get("/file/content", { path })) as Record<string, unknown>;
-        // Return the content directly if it's a string
+        const result = (await client.get("/file/content", { path }, directory)) as Record<string, unknown>;
         if (typeof result.content === "string") {
           return toolResult(`File: ${path}\n\n${result.content}`);
         }
@@ -133,10 +136,12 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
   server.tool(
     "opencode_file_status",
     "Get status for tracked files (VCS changes: modified, added, deleted, etc.)",
-    {},
-    async () => {
+    {
+      directory: directoryParam,
+    },
+    async ({ directory }) => {
       try {
-        const files = (await client.get("/file/status")) as Array<Record<string, unknown>>;
+        const files = (await client.get("/file/status", undefined, directory)) as Array<Record<string, unknown>>;
         if (!files || files.length === 0) {
           return toolResult("No tracked file changes.");
         }

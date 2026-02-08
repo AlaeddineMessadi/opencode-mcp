@@ -317,4 +317,63 @@ describe("OpenCodeClient", () => {
       expect(opts.headers.Accept).toBe("application/json");
     });
   });
+
+  describe("directory header", () => {
+    it("sets x-opencode-directory header on GET when directory is provided", async () => {
+      fetchMock.mockResolvedValue(mockResponse({}));
+      const client = createClient();
+      await client.get("/project/current", undefined, "/home/user/my-project");
+      const [, opts] = fetchMock.mock.calls[0];
+      expect(opts.headers["x-opencode-directory"]).toBe("/home/user/my-project");
+    });
+
+    it("does not set x-opencode-directory header when directory is undefined", async () => {
+      fetchMock.mockResolvedValue(mockResponse({}));
+      const client = createClient();
+      await client.get("/project/current");
+      const [, opts] = fetchMock.mock.calls[0];
+      expect(opts.headers["x-opencode-directory"]).toBeUndefined();
+    });
+
+    it("sets x-opencode-directory header on POST when directory is provided", async () => {
+      fetchMock.mockResolvedValue(mockResponse({ id: "s1" }));
+      const client = createClient();
+      await client.post("/session", { title: "test" }, { directory: "/tmp/proj" });
+      const [, opts] = fetchMock.mock.calls[0];
+      expect(opts.headers["x-opencode-directory"]).toBe("/tmp/proj");
+    });
+
+    it("sets x-opencode-directory header on PATCH when directory is provided", async () => {
+      fetchMock.mockResolvedValue(mockResponse({}));
+      const client = createClient();
+      await client.patch("/config", { key: "val" }, "/srv/app");
+      const [, opts] = fetchMock.mock.calls[0];
+      expect(opts.headers["x-opencode-directory"]).toBe("/srv/app");
+    });
+
+    it("sets x-opencode-directory header on PUT when directory is provided", async () => {
+      fetchMock.mockResolvedValue(mockResponse({}));
+      const client = createClient();
+      await client.put("/config", { key: "val" }, "/srv/app");
+      const [, opts] = fetchMock.mock.calls[0];
+      expect(opts.headers["x-opencode-directory"]).toBe("/srv/app");
+    });
+
+    it("sets x-opencode-directory header on DELETE when directory is provided", async () => {
+      fetchMock.mockResolvedValue(mockResponse(undefined, 204));
+      const client = createClient();
+      await client.delete("/session/s1", undefined, "/data/proj");
+      const [, opts] = fetchMock.mock.calls[0];
+      expect(opts.headers["x-opencode-directory"]).toBe("/data/proj");
+    });
+
+    it("works alongside auth header", async () => {
+      fetchMock.mockResolvedValue(mockResponse({}));
+      const client = createClient({ password: "secret" });
+      await client.get("/health", undefined, "/home/project");
+      const [, opts] = fetchMock.mock.calls[0];
+      expect(opts.headers["x-opencode-directory"]).toBe("/home/project");
+      expect(opts.headers.Authorization).toMatch(/^Basic /);
+    });
+  });
 });

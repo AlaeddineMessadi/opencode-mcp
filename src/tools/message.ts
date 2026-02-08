@@ -6,6 +6,7 @@ import {
   toolError,
   formatMessageResponse,
   formatMessageList,
+  directoryParam,
 } from "../helpers.js";
 
 export function registerMessageTools(
@@ -21,14 +22,16 @@ export function registerMessageTools(
         .number()
         .optional()
         .describe("Maximum number of messages to return"),
+      directory: directoryParam,
     },
-    async ({ sessionId, limit }) => {
+    async ({ sessionId, limit, directory }) => {
       try {
         const query: Record<string, string> = {};
         if (limit !== undefined) query.limit = String(limit);
         const messages = await client.get(
           `/session/${sessionId}/message`,
           query,
+          directory,
         );
         return toolResult(formatMessageList(messages as unknown[]));
       } catch (e) {
@@ -43,11 +46,14 @@ export function registerMessageTools(
     {
       sessionId: z.string().describe("Session ID"),
       messageId: z.string().describe("Message ID"),
+      directory: directoryParam,
     },
-    async ({ sessionId, messageId }) => {
+    async ({ sessionId, messageId, directory }) => {
       try {
         const msg = await client.get(
           `/session/${sessionId}/message/${messageId}`,
+          undefined,
+          directory,
         );
         return toolResult(formatMessageResponse(msg));
       } catch (e) {
@@ -78,6 +84,7 @@ export function registerMessageTools(
           "If true, inject context without triggering AI response (useful for plugins)",
         ),
       system: z.string().optional().describe("System prompt override"),
+      directory: directoryParam,
     },
     async ({
       sessionId,
@@ -87,6 +94,7 @@ export function registerMessageTools(
       agent,
       noReply,
       system,
+      directory,
     }) => {
       try {
         const body: Record<string, unknown> = {
@@ -101,6 +109,7 @@ export function registerMessageTools(
         const response = await client.post(
           `/session/${sessionId}/message`,
           body,
+          { directory },
         );
         return toolResult(formatMessageResponse(response));
       } catch (e) {
@@ -124,8 +133,9 @@ export function registerMessageTools(
         .optional()
         .describe("Model ID (e.g. 'claude-3-5-sonnet-20241022')"),
       agent: z.string().optional().describe("Agent to use"),
+      directory: directoryParam,
     },
-    async ({ sessionId, text, providerID, modelID, agent }) => {
+    async ({ sessionId, text, providerID, modelID, agent, directory }) => {
       try {
         const body: Record<string, unknown> = {
           parts: [{ type: "text", text }],
@@ -134,7 +144,7 @@ export function registerMessageTools(
           body.model = { providerID, modelID };
         }
         if (agent) body.agent = agent;
-        await client.post(`/session/${sessionId}/prompt_async`, body);
+        await client.post(`/session/${sessionId}/prompt_async`, body, { directory });
         return toolResult(
           "Message sent asynchronously. Use opencode_wait or opencode_message_list to check for responses.",
         );
@@ -159,6 +169,7 @@ export function registerMessageTools(
       agent: z.string().optional().describe("Agent to use"),
       providerID: z.string().optional().describe("Provider ID"),
       modelID: z.string().optional().describe("Model ID"),
+      directory: directoryParam,
     },
     async ({
       sessionId,
@@ -167,6 +178,7 @@ export function registerMessageTools(
       agent,
       providerID,
       modelID,
+      directory,
     }) => {
       try {
         const body: Record<string, unknown> = {
@@ -180,6 +192,7 @@ export function registerMessageTools(
         const result = await client.post(
           `/session/${sessionId}/command`,
           body,
+          { directory },
         );
         return toolResult(formatMessageResponse(result));
       } catch (e) {
@@ -197,8 +210,9 @@ export function registerMessageTools(
       agent: z.string().describe("Agent to use for the shell command"),
       providerID: z.string().optional().describe("Provider ID"),
       modelID: z.string().optional().describe("Model ID"),
+      directory: directoryParam,
     },
-    async ({ sessionId, command, agent, providerID, modelID }) => {
+    async ({ sessionId, command, agent, providerID, modelID, directory }) => {
       try {
         const body: Record<string, unknown> = { command, agent };
         if (providerID && modelID) {
@@ -207,6 +221,7 @@ export function registerMessageTools(
         const result = await client.post(
           `/session/${sessionId}/shell`,
           body,
+          { directory },
         );
         return toolResult(formatMessageResponse(result));
       } catch (e) {
