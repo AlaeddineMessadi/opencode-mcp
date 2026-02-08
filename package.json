@@ -1,16 +1,51 @@
 {
   "name": "opencode-mcp",
   "version": "2.0.0",
-  "description": "MCP server that wraps the OpenCode AI headless server API",
+  "description": "MCP server that wraps the OpenCode AI headless server API — 70 tools, 10 resources, 5 prompts for any MCP client",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
     "opencode-mcp": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "build": "tsc",
+    "postbuild": "chmod +x dist/index.js",
     "start": "node dist/index.js",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "opencode",
+    "ai",
+    "llm",
+    "claude",
+    "cursor",
+    "windsurf",
+    "coding-assistant",
+    "headless",
+    "server",
+    "tools"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlaeddineMessadi/opencode-mcp.git"
+  },
+  "homepage": "https://github.com/AlaeddineMessadi/opencode-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/AlaeddineMessadi/opencode-mcp/issues"
+  },
+  "author": "Alaeddine Messadi",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1"
