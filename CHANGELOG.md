@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.0] - 2025-02-08
+## [1.0.0] - 2025-02-08
 
 ### Added
 
@@ -23,11 +23,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Smart response formatting** — extracts meaningful text from message parts, truncation for large outputs
 - **SSE event polling** — monitor real-time server events
 - **`npx` support** — run with `npx opencode-mcp` without installing globally
-
-## [1.0.0] - 2025-02-08
-
-### Added
-
-- Initial MCP server wrapping the OpenCode headless API
-- Basic session, message, file, config, provider, and system tools
-- HTTP client for the OpenCode REST API
