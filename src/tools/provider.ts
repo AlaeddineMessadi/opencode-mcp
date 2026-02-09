@@ -9,13 +9,89 @@ export function registerProviderTools(
 ) {
   server.tool(
     "opencode_provider_list",
-    "List all providers, default models, and connected providers",
+    "List all configured providers with their connection status. Returns a compact summary — use opencode_provider_models to see models for a specific provider.",
     {
       directory: directoryParam,
     },
     async ({ directory }) => {
       try {
-        return toolJson(await client.get("/provider", undefined, directory));
+        const providers = (await client.get("/provider", undefined, directory)) as Array<
+          Record<string, unknown>
+        >;
+        if (!providers || providers.length === 0) {
+          return toolResult("No providers configured.");
+        }
+
+        const lines = providers.map((p) => {
+          const id = p.id ?? p.name ?? "?";
+          const connected =
+            p.connected ?? p.authenticated ?? p.status === "connected";
+          const models = p.models as Array<Record<string, unknown>> | undefined;
+          const modelCount = models?.length ?? 0;
+          const status = connected ? "connected" : "not configured";
+          return `- ${id}: ${status} (${modelCount} model${modelCount !== 1 ? "s" : ""})`;
+        });
+
+        return toolResult(
+          `## Providers (${providers.length})\n${lines.join("\n")}\n\nUse \`opencode_provider_models\` with a provider ID to see its models.`,
+        );
+      } catch (e) {
+        return toolError(e);
+      }
+    },
+  );
+
+  server.tool(
+    "opencode_provider_models",
+    "List available models for a specific provider. Call opencode_provider_list first to see provider IDs.",
+    {
+      providerId: z
+        .string()
+        .describe("Provider ID (e.g. 'anthropic', 'openrouter', 'google')"),
+      directory: directoryParam,
+    },
+    async ({ providerId, directory }) => {
+      try {
+        const providers = (await client.get("/provider", undefined, directory)) as Array<
+          Record<string, unknown>
+        >;
+        const provider = providers?.find(
+          (p) => (p.id ?? p.name) === providerId,
+        );
+
+        if (!provider) {
+          const available = providers
+            ?.map((p) => p.id ?? p.name)
+            .join(", ");
+          return toolResult(
+            `Provider "${providerId}" not found. Available: ${available || "none"}`,
+            true,
+          );
+        }
+
+        const connected =
+          provider.connected ??
+          provider.authenticated ??
+          provider.status === "connected";
+        const models = provider.models as
+          | Array<Record<string, unknown>>
+          | undefined;
+
+        if (!models || models.length === 0) {
+          return toolResult(
+            `Provider "${providerId}" (${connected ? "connected" : "NOT CONFIGURED"}) has no models available.`,
+          );
+        }
+
+        const lines = models.map((m) => {
+          const id = m.id ?? m.name ?? "?";
+          const name = m.name && m.name !== m.id ? ` — ${m.name}` : "";
+          return `- ${id}${name}`;
+        });
+
+        return toolResult(
+          `## ${providerId} (${connected ? "connected" : "NOT CONFIGURED"}) — ${models.length} model${models.length !== 1 ? "s" : ""}\n${lines.join("\n")}`,
+        );
       } catch (e) {
         return toolError(e);
       }

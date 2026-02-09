@@ -58,7 +58,7 @@ const client = new OpenCodeClient({ baseUrl, username, password });
 
 const server = new McpServer({
   name: "opencode-mcp",
-  version: "1.3.0",
+  version: "1.4.0",
   description:
     "Full-featured MCP server wrapping the OpenCode AI headless HTTP server. " +
     "Provides 70+ tools, resources, and prompts to manage sessions, send " +
@@ -113,7 +113,7 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error(
-    `opencode-mcp v1.3.0 started (OpenCode server at ${baseUrl})`,
+    `opencode-mcp v1.4.0 started (OpenCode server at ${baseUrl})`,
   );
 }
 

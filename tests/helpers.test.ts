@@ -4,6 +4,7 @@ import {
   formatMessageList,
   formatDiffResponse,
   formatSessionList,
+  analyzeMessageResponse,
   safeStringify,
   toolResult,
   toolError,
@@ -232,6 +233,99 @@ describe("formatSessionList", () => {
     const sessions = [{ id: "s1" }];
     const result = formatSessionList(sessions);
     expect(result).toContain("(untitled)");
+  });
+});
+
+// ─── analyzeMessageResponse ──────────────────────────────────────────────
+
+describe("analyzeMessageResponse", () => {
+  it("detects null response as empty", () => {
+    const result = analyzeMessageResponse(null);
+    expect(result.isEmpty).toBe(true);
+    expect(result.hasError).toBe(false);
+    expect(result.warning).toContain("empty response");
+    expect(result.warning).toContain("opencode_setup");
+  });
+
+  it("detects undefined response as empty", () => {
+    const result = analyzeMessageResponse(undefined);
+    expect(result.isEmpty).toBe(true);
+    expect(result.warning).toContain("API key");
+  });
+
+  it("detects response with empty parts array as empty", () => {
+    const result = analyzeMessageResponse({ parts: [] });
+    expect(result.isEmpty).toBe(true);
+    expect(result.warning).toContain("no text content");
+  });
+
+  it("detects response with only whitespace text as empty", () => {
+    const result = analyzeMessageResponse({
+      parts: [{ type: "text", text: "   " }],
+    });
+    expect(result.isEmpty).toBe(true);
+    expect(result.warning).toContain("no text content");
+  });
+
+  it("detects response with no text parts as empty", () => {
+    const result = analyzeMessageResponse({
+      parts: [{ type: "tool-invocation", toolName: "something" }],
+    });
+    expect(result.isEmpty).toBe(true);
+    expect(result.warning).toContain("no text content");
+  });
+
+  it("detects error parts with .error field", () => {
+    const result = analyzeMessageResponse({
+      parts: [{ type: "tool-result", error: "Unauthorized" }],
+    });
+    expect(result.hasError).toBe(true);
+    expect(result.isEmpty).toBe(false);
+    expect(result.warning).toContain("Unauthorized");
+    expect(result.warning).toContain("authentication");
+  });
+
+  it("detects error keywords in text parts", () => {
+    const result = analyzeMessageResponse({
+      parts: [{ type: "text", text: "Error: invalid key provided" }],
+    });
+    expect(result.hasError).toBe(true);
+    expect(result.warning).toContain("invalid key");
+  });
+
+  it("detects 'unauthorized' keyword in text", () => {
+    const result = analyzeMessageResponse({
+      parts: [{ type: "text", text: "Request unauthorized by provider" }],
+    });
+    expect(result.hasError).toBe(true);
+  });
+
+  it("returns no warning for valid response with text", () => {
+    const result = analyzeMessageResponse({
+      parts: [{ type: "text", text: "Hello, world!" }],
+    });
+    expect(result.isEmpty).toBe(false);
+    expect(result.hasError).toBe(false);
+    expect(result.warning).toBeNull();
+  });
+
+  it("returns no warning for response with mixed parts including text", () => {
+    const result = analyzeMessageResponse({
+      info: { id: "m1", role: "assistant" },
+      parts: [
+        { type: "text", text: "Let me check that." },
+        { type: "tool-invocation", toolName: "readFile" },
+      ],
+    });
+    expect(result.isEmpty).toBe(false);
+    expect(result.hasError).toBe(false);
+    expect(result.warning).toBeNull();
+  });
+
+  it("handles response with no parts field", () => {
+    const result = analyzeMessageResponse({ info: { id: "m1" } });
+    expect(result.isEmpty).toBe(true);
+    expect(result.warning).toContain("no text content");
   });
 });
 

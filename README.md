@@ -7,7 +7,7 @@
 
 An [MCP](https://modelcontextprotocol.io/) server that gives any MCP-compatible client full access to [OpenCode](https://opencode.ai/). Manage sessions, send prompts, search files, review diffs, configure providers, control the TUI, and more.
 
-**71 tools** | **10 resources** | **5 prompts** | **Multi-project support** | **Auto-start**
+**72 tools** | **10 resources** | **5 prompts** | **Multi-project support** | **Auto-start**
 
 ## Quick Start
 
@@ -314,7 +314,7 @@ src/
     file.ts             File and search tools (6)
     tui.ts              TUI remote control tools (9)
     config.ts           Config tools (3)
-    provider.ts         Provider/auth tools (5)
+    provider.ts         Provider/auth tools (6)
     misc.ts             System, agents, LSP, MCP, logging tools (13)
     events.ts           SSE event polling (1)
     global.ts           Health check (1)
@@ -336,7 +336,7 @@ npm run dev      # watch mode
 
 - [Getting Started](docs/getting-started.md) — step-by-step setup guide
 - [Configuration](docs/configuration.md) — all env vars and MCP client configs
-- [Tools Reference](docs/tools.md) — detailed reference for all 71 tools
+- [Tools Reference](docs/tools.md) — detailed reference for all 72 tools
 - [Resources Reference](docs/resources.md) — all 10 MCP resources
 - [Prompts Reference](docs/prompts.md) — all 5 MCP prompts
 - [Usage Examples](docs/examples.md) — real workflow examples

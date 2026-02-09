@@ -10,6 +10,7 @@ import {
   formatMessageResponse,
   formatMessageList,
   formatSessionList,
+  analyzeMessageResponse,
   toolResult,
   toolError,
   directoryParam,
@@ -52,17 +53,78 @@ export function registerWorkflowTools(
         try {
           const providers = (await client.get("/provider", undefined, directory)) as Array<Record<string, unknown>>;
           if (providers && providers.length > 0) {
-            const lines = providers.map((p) => {
-              const id = p.id ?? p.name ?? "?";
-              const models = p.models as Array<Record<string, unknown>> | undefined;
-              const defaultModel = models && models.length > 0
-                ? (models[0].id ?? models[0].name ?? "?")
-                : "no models";
-              // Check if provider has auth configured
-              const connected = p.connected ?? p.authenticated ?? p.status === "connected";
-              const status = connected ? "connected" : "NOT CONFIGURED";
-              return `- ${id}: ${status}${connected ? ` (${defaultModel})` : " — use opencode_auth_set to add API key"}`;
-            });
+            // Also fetch auth methods for richer status info
+            let authMethods: Record<string, unknown> | null = null;
+            try {
+              authMethods = (await client.get("/provider/auth", undefined, directory)) as Record<string, unknown>;
+            } catch { /* non-critical */ }
+
+            const lines = await Promise.all(
+              providers.map(async (p) => {
+                const id = (p.id ?? p.name ?? "?") as string;
+                const models = p.models as Array<Record<string, unknown>> | undefined;
+                const defaultModel = models && models.length > 0
+                  ? (models[0].id ?? models[0].name ?? "?")
+                  : "no models";
+                // Check if provider has auth configured
+                const connected = p.connected ?? p.authenticated ?? p.status === "connected";
+
+                if (!connected) {
+                  // Determine available auth methods
+                  let authHint = "use opencode_auth_set to add API key";
+                  if (authMethods && Array.isArray(authMethods[id])) {
+                    const methods = (authMethods[id] as Array<Record<string, unknown>>)
+                      .map((m) => m.type ?? m.id ?? "?")
+                      .join(", ");
+                    authHint = `available auth: ${methods}`;
+                  }
+                  return `- ${id}: NOT CONFIGURED — ${authHint}`;
+                }
+
+                // Provider says connected — verify with a lightweight probe
+                let verified = "connected";
+                try {
+                  // Create a throwaway session, send a trivial prompt, check for content
+                  const session = (await client.post("/session", {
+                    title: `_probe_${id}`,
+                  }, { directory })) as Record<string, unknown>;
+                  const sessionId = session.id as string;
+
+                  const probeBody: Record<string, unknown> = {
+                    parts: [{ type: "text", text: "Reply with OK" }],
+                  };
+                  if (models && models.length > 0) {
+                    probeBody.model = {
+                      providerID: id,
+                      modelID: (models[0].id ?? models[0].name) as string,
+                    };
+                  }
+
+                  const probeResponse = await client.post(
+                    `/session/${sessionId}/message`,
+                    probeBody,
+                    { directory },
+                  );
+
+                  const analysis = analyzeMessageResponse(probeResponse);
+                  if (analysis.isEmpty || analysis.hasError) {
+                    verified = "CONNECTED BUT NOT RESPONDING — API key may be invalid or expired";
+                  } else {
+                    verified = "WORKING";
+                  }
+
+                  // Clean up probe session
+                  try {
+                    await client.delete(`/session/${sessionId}`, undefined, directory);
+                  } catch { /* best effort */ }
+                } catch {
+                  // If the probe throws (e.g. network error), just report connected
+                  verified = "connected (could not verify)";
+                }
+
+                return `- ${id}: ${verified} (${defaultModel})`;
+              }),
+            );
             sections.push(`## Providers\n${lines.join("\n")}`);
           } else {
             sections.push("## Providers\nNo providers found.");
@@ -158,11 +220,17 @@ export function registerWorkflowTools(
           { directory },
         );
 
-        // 3. Format and return
+        // 3. Analyze for auth / empty response issues
+        const analysis = analyzeMessageResponse(response);
+
+        // 4. Format and return
         const formatted = formatMessageResponse(response);
-        return toolResult(
-          `Session: ${sessionId}\n\n${formatted}`,
-        );
+        const parts = [`Session: ${sessionId}`];
+        if (formatted) parts.push(formatted);
+        if (analysis.warning) {
+          parts.push(`\n--- WARNING ---\n${analysis.warning}`);
+        }
+        return toolResult(parts.join("\n\n"), analysis.hasError);
       } catch (e) {
         return toolError(e);
       }
@@ -196,8 +264,18 @@ export function registerWorkflowTools(
           body,
           { directory },
         );
+
+        const analysis = analyzeMessageResponse(response);
         const formatted = formatMessageResponse(response);
-        return toolResult(formatted);
+        const parts: string[] = [];
+        if (formatted) parts.push(formatted);
+        if (analysis.warning) {
+          parts.push(`\n--- WARNING ---\n${analysis.warning}`);
+        }
+        return toolResult(
+          parts.join("\n\n") || "Empty response.",
+          analysis.hasError,
+        );
       } catch (e) {
         return toolError(e);
       }

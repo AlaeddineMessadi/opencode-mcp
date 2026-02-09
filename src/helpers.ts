@@ -157,6 +157,76 @@ export function safeStringify(
 }
 
 /**
+ * Analyze an AI message response for signs of failure:
+ *  - Completely empty (null/undefined)
+ *  - Has parts but no text content (provider returned nothing)
+ *  - Contains error indicators in parts
+ *
+ * Returns a diagnostic object with `isEmpty`, `hasError`, and `warning` text.
+ */
+export function analyzeMessageResponse(response: unknown): {
+  isEmpty: boolean;
+  hasError: boolean;
+  warning: string | null;
+} {
+  if (response === null || response === undefined) {
+    return {
+      isEmpty: true,
+      hasError: false,
+      warning:
+        "The AI returned an empty response. This usually means the provider " +
+        "is not configured or the API key is missing/invalid. " +
+        "Use `opencode_setup` to check provider status, or " +
+        "`opencode_auth_set` to configure an API key.",
+    };
+  }
+
+  const r = response as any;
+  const parts = Array.isArray(r?.parts) ? r.parts : [];
+
+  // Check for error parts
+  const errorParts = parts.filter(
+    (p: any) =>
+      p.error ||
+      (p.type === "tool-result" && p.error) ||
+      (typeof p.text === "string" && /\b(error|unauthorized|forbidden|invalid.?key)\b/i.test(p.text)),
+  );
+  if (errorParts.length > 0) {
+    const firstError =
+      errorParts[0].error ??
+      errorParts[0].text ??
+      JSON.stringify(errorParts[0]);
+    return {
+      isEmpty: false,
+      hasError: true,
+      warning:
+        `The response contains an error: ${typeof firstError === "string" ? firstError : JSON.stringify(firstError)}. ` +
+        "This may indicate an authentication issue. " +
+        "Use `opencode_auth_set` to verify your API key.",
+    };
+  }
+
+  // Check if there's any actual text content
+  const textContent = parts
+    .filter((p: any) => p.type === "text")
+    .map((p: any) => (p.text ?? p.content ?? "").trim())
+    .join("");
+
+  if (parts.length === 0 || textContent === "") {
+    return {
+      isEmpty: true,
+      hasError: false,
+      warning:
+        "The AI returned a response with no text content. This usually means " +
+        "the provider API key is missing or the model is unavailable. " +
+        "Try a different provider/model, or use `opencode_auth_set` to configure credentials.",
+    };
+  }
+
+  return { isEmpty: false, hasError: false, warning: null };
+}
+
+/**
  * Standard tool response builder.
  */
 export function toolResult(text: string, isError = false) {
