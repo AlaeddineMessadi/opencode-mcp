@@ -1,21 +1,19 @@
 # Prompts Reference
 
-MCP Prompts are pre-built workflow templates that guide an LLM through multi-step OpenCode interactions. They are discoverable by MCP clients and can be invoked with arguments.
+MCP Prompts are guided workflow templates that your client can offer as selectable actions. They structure multi-step interactions with OpenCode.
 
-## Available Prompts
+## Available Prompts (6)
 
 ### `opencode-code-review`
 
 Review code changes in an OpenCode session.
 
-**Arguments:**
-
-| Name | Type | Required | Description |
+| Argument | Type | Required | Description |
 |---|---|---|---|
 | `sessionId` | string | yes | Session ID to review |
 
 **What it does:**
-1. Fetches the diff using `opencode_review_changes`
+1. Fetches the diff with `opencode_review_changes`
 2. Analyzes changes for correctness, style, performance, and security
 3. Provides structured line-level feedback
 4. Suggests improvements
@@ -26,12 +24,10 @@ Review code changes in an OpenCode session.
 
 Start a guided debugging session.
 
-**Arguments:**
-
-| Name | Type | Required | Description |
+| Argument | Type | Required | Description |
 |---|---|---|---|
 | `issue` | string | yes | Description of the bug |
-| `context` | string | no | Additional context (file paths, errors, etc.) |
+| `context` | string | no | Additional context (file paths, error messages) |
 
 **What it does:**
 1. Gets project context with `opencode_context`
@@ -45,7 +41,7 @@ Start a guided debugging session.
 
 Get oriented in a new project.
 
-**Arguments:** None
+*No arguments.*
 
 **What it does:**
 1. Gets project info, VCS status, and available agents
@@ -59,9 +55,7 @@ Get oriented in a new project.
 
 Have OpenCode implement a feature or make changes.
 
-**Arguments:**
-
-| Name | Type | Required | Description |
+| Argument | Type | Required | Description |
 |---|---|---|---|
 | `description` | string | yes | What to implement |
 | `requirements` | string | no | Specific requirements or constraints |
@@ -74,13 +68,27 @@ Have OpenCode implement a feature or make changes.
 
 ---
 
+### `opencode-best-practices`
+
+Get guidance on using opencode-mcp effectively.
+
+*No arguments.*
+
+**What it does:**
+Provides structured advice on:
+- Initial setup and provider configuration
+- Tool selection (which tools to use for which tasks)
+- Session management and monitoring patterns
+- Common pitfalls and how to avoid them
+- Recommended workflows for common scenarios
+
+---
+
 ### `opencode-session-summary`
 
 Summarize what happened in an OpenCode session.
 
-**Arguments:**
-
-| Name | Type | Required | Description |
+| Argument | Type | Required | Description |
 |---|---|---|---|
 | `sessionId` | string | yes | Session ID to summarize |
 

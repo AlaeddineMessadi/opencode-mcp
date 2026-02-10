@@ -9,6 +9,7 @@ All environment variables are **optional**. You only need to set them if you've 
 | `OPENCODE_BASE_URL` | URL of the OpenCode headless server | `http://127.0.0.1:4096` | No |
 | `OPENCODE_SERVER_USERNAME` | HTTP basic auth username | `opencode` | No |
 | `OPENCODE_SERVER_PASSWORD` | HTTP basic auth password | *(none — auth disabled)* | No |
+| `OPENCODE_AUTO_SERVE` | Auto-start `opencode serve` if not running | `true` | No |
 
 ### Notes
 
@@ -195,9 +196,21 @@ Then use `opencode-mcp` directly in your config:
 }
 ```
 
-## OpenCode Server Setup
+## Auto-Start
 
-The MCP server connects to a running OpenCode headless server. Start it in your project directory:
+By default, the MCP server **automatically starts** `opencode serve` if it's not already running. To disable this:
+
+```json
+{
+  "env": {
+    "OPENCODE_AUTO_SERVE": "false"
+  }
+}
+```
+
+## Manual OpenCode Server Setup
+
+If you prefer to manage the server yourself:
 
 ```bash
 # Default (no auth, port 4096)

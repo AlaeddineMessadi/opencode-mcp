@@ -5,31 +5,23 @@
 [![node](https://img.shields.io/node/v/opencode-mcp)](https://nodejs.org/)
 [![npm downloads](https://img.shields.io/npm/dm/opencode-mcp)](https://www.npmjs.com/package/opencode-mcp)
 
-An [MCP](https://modelcontextprotocol.io/) server that gives any MCP-compatible client full access to [OpenCode](https://opencode.ai/). Manage sessions, send prompts, search files, review diffs, configure providers, control the TUI, and more.
+**Give any MCP client the power of [OpenCode](https://opencode.ai/).**
 
-**75 tools** | **10 resources** | **5 prompts** | **Multi-project support** | **Auto-start**
+opencode-mcp is an MCP server that bridges your AI tools (Claude, Cursor, Windsurf, VS Code, etc.) to OpenCode's headless API. It lets your AI delegate real coding work — building features, debugging, refactoring, running tests — to OpenCode sessions that autonomously read, write, and execute code in your project.
+
+**78 tools** | **10 resources** | **6 prompts** | **Multi-project** | **Auto-start**
+
+## Why Use This?
+
+- **Delegate coding tasks** — Tell Claude "build me a REST API" and it delegates to OpenCode, which creates files, installs packages, writes tests, and reports back.
+- **Parallel work** — Fire off multiple tasks to OpenCode while your primary AI keeps working on something else.
+- **Any MCP client** — Works with Claude Desktop, Claude Code, Cursor, Windsurf, VS Code Copilot, Cline, Continue, Zed, Amazon Q, and any other MCP-compatible tool.
+- **Zero setup** — The server auto-starts `opencode serve` if it's not already running. No manual steps.
 
 ## Quick Start
 
-Add to your MCP client and go. The server **automatically detects and starts** the OpenCode server if it's not already running — no manual `opencode serve` step needed.
-
-> **Prerequisite:** [OpenCode](https://opencode.ai/) must be installed on your system.
-> Install: `curl -fsSL https://opencode.ai/install | bash` or `npm i -g opencode-ai` or `brew install sst/tap/opencode`
-
-Pick your client below. No authentication is needed by default — just add the config and restart your client.
-
-**Claude Desktop** (`claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "opencode": {
-      "command": "npx",
-      "args": ["-y", "opencode-mcp"]
-    }
-  }
-}
-```
+> **Prerequisite:** [OpenCode](https://opencode.ai/) must be installed.
+> `curl -fsSL https://opencode.ai/install | bash` or `npm i -g opencode-ai` or `brew install sst/tap/opencode`
 
 **Claude Code:**
 
@@ -37,7 +29,7 @@ Pick your client below. No authentication is needed by default — just add the 
 claude mcp add opencode -- npx -y opencode-mcp
 ```
 
-**Cursor** (`.cursor/mcp.json`):
+**Claude Desktop / Cursor / Windsurf / Cline / Continue** (add to your MCP config):
 
 ```json
 {
@@ -50,174 +42,79 @@ claude mcp add opencode -- npx -y opencode-mcp
 }
 ```
 
-**Windsurf** (`~/.windsurf/mcp.json`):
+That's it. Restart your client and OpenCode's tools will be available.
 
-```json
-{
-  "mcpServers": {
-    "opencode": {
-      "command": "npx",
-      "args": ["-y", "opencode-mcp"]
-    }
-  }
-}
+> See [Configuration](docs/configuration.md) for all client configs (VS Code Copilot, Zed, Amazon Q, etc.) and environment variables.
+
+## How It Works
+
+```
+MCP Client  <--stdio-->  opencode-mcp  <--HTTP-->  OpenCode Server
+(Claude, Cursor, etc.)   (this package)            (opencode serve)
 ```
 
-**VS Code — GitHub Copilot** (`settings.json`):
+Your MCP client calls tools over stdio. This server translates them into HTTP requests to the OpenCode headless API. If the OpenCode server isn't running, it's started automatically.
 
-```json
-{
-  "github.copilot.chat.mcp.servers": [
-    {
-      "name": "opencode",
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "opencode-mcp"]
-    }
-  ]
-}
-```
+## Key Tools
 
-**Cline** (VS Code extension settings):
+The 78 tools are organized into tiers. Start with the workflow tools — they handle the common patterns in a single call.
 
-```json
-{
-  "mcpServers": {
-    "opencode": {
-      "command": "npx",
-      "args": ["-y", "opencode-mcp"]
-    }
-  }
-}
-```
-
-**Continue** (`.continue/config.json`):
-
-```json
-{
-  "mcpServers": {
-    "opencode": {
-      "command": "npx",
-      "args": ["-y", "opencode-mcp"]
-    }
-  }
-}
-```
-
-**Zed** (`settings.json`):
-
-```json
-{
-  "context_servers": {
-    "opencode": {
-      "command": {
-        "path": "npx",
-        "args": ["-y", "opencode-mcp"]
-      }
-    }
-  }
-}
-```
-
-**Amazon Q** (VS Code `settings.json`):
-
-```json
-{
-  "amazon-q.mcp.servers": [
-    {
-      "name": "opencode",
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "opencode-mcp"]
-    }
-  ]
-}
-```
-
-That's it. Your MCP client now has access to the entire OpenCode API. The MCP server will auto-start `opencode serve` if it's not already running.
-
-### Custom server URL or authentication (optional)
-
-By default, the MCP server connects to `http://127.0.0.1:4096` with no authentication. Both username and password are **optional** — auth is only needed if you've enabled it on the OpenCode server side.
-
-If the OpenCode server is on a different host/port or has auth enabled, pass environment variables:
-
-```json
-{
-  "mcpServers": {
-    "opencode": {
-      "command": "npx",
-      "args": ["-y", "opencode-mcp"],
-      "env": {
-        "OPENCODE_BASE_URL": "http://192.168.1.10:4096",
-        "OPENCODE_SERVER_USERNAME": "myuser",
-        "OPENCODE_SERVER_PASSWORD": "mypass"
-      }
-    }
-  }
-}
-```
-
-To **disable** auto-start (if you prefer to manage the OpenCode server yourself):
-
-```json
-{
-  "env": {
-    "OPENCODE_AUTO_SERVE": "false"
-  }
-}
-```
-
-## What Can It Do?
-
-### Workflow Tools (start here)
-
-High-level tools designed to be the easiest way for an LLM to interact with OpenCode:
+### Workflow Tools (13) — Start Here
 
 | Tool | What it does |
 |---|---|
-| `opencode_setup` | Check server health, provider config, and project status — use as first step |
-| `opencode_ask` | Create session + send prompt + get answer in one call |
+| `opencode_setup` | Check server health, providers, and project status. Use first. |
+| `opencode_ask` | Create session + send prompt + get answer. One call. |
 | `opencode_reply` | Follow-up message in an existing session |
-| `opencode_conversation` | Formatted conversation history |
+| `opencode_run` | Send a task and wait for completion (session + async send + polling) |
+| `opencode_fire` | Fire-and-forget: dispatch a task, return immediately |
+| `opencode_check` | Compact progress report for a running session (status, todos, files changed) |
+| `opencode_conversation` | Get formatted conversation history |
 | `opencode_sessions_overview` | Quick overview of all sessions |
-| `opencode_context` | Project + path + VCS + config + agents in one call |
-| `opencode_wait` | Poll an async session until it finishes |
+| `opencode_context` | Project + VCS + config + agents in one call |
 | `opencode_review_changes` | Formatted diff summary for a session |
-| `opencode_provider_test` | Quick-test whether a provider is actually working |
-| `opencode_status` | Quick dashboard: health, providers, sessions, VCS |
+| `opencode_wait` | Poll an async session until it finishes |
+| `opencode_provider_test` | Quick-test whether a provider is working |
+| `opencode_status` | Health + providers + sessions + VCS dashboard |
 
-### Session Tools (19)
+### Recommended Patterns
 
-Create, list, get, delete, update, fork, share, abort, revert sessions. Get diffs, todos, summaries, child sessions, and respond to permission requests.
+**Quick question:**
+```
+opencode_ask({ prompt: "Explain the auth flow in this project" })
+```
 
-### Message Tools (6)
+**Build something and wait:**
+```
+opencode_run({ prompt: "Add input validation to POST /api/users", maxDurationSeconds: 300 })
+```
 
-Send prompts (sync or async), list/get messages, execute slash commands, run shell commands.
+**Parallel background tasks:**
+```
+opencode_fire({ prompt: "Refactor the auth module to use JWT" })
+→ returns sessionId immediately
+opencode_check({ sessionId: "..." })
+→ check progress anytime
+```
 
-### File & Search Tools (6)
+### All Tool Categories
 
-Search text/regex across the project, find files by name, find workspace symbols, list directories, read files, check VCS file status.
-
-### Project Tools (2)
-
-List known projects and inspect the current active project.
-
-### Config & Provider Tools (9)
-
-Get/update config, list providers and models, manage auth (API keys, OAuth).
-
-### TUI Control Tools (9)
-
-Remote-control the OpenCode TUI: append/submit/clear prompts, execute commands, show toasts, open dialogs (help, sessions, models, themes).
-
-### System & Monitoring Tools (14)
-
-Health checks, VCS info, LSP/formatter status, MCP server management, agent/command listing, logging, SSE event polling.
+| Category | Count | Description |
+|---|---|---|
+| [Workflow](docs/tools.md#workflow-tools) | 13 | High-level composite operations |
+| [Session](docs/tools.md#session-tools) | 19 | Create, list, fork, share, abort, revert sessions |
+| [Message](docs/tools.md#message-tools) | 6 | Send prompts, execute commands, run shell |
+| [File & Search](docs/tools.md#file--search-tools) | 6 | Search text/regex, find files/symbols, read files |
+| [System](docs/tools.md#system--monitoring-tools) | 13 | Health, VCS, LSP, MCP servers, agents, logging |
+| [TUI Control](docs/tools.md#tui-control-tools) | 9 | Remote-control the OpenCode terminal UI |
+| [Provider & Auth](docs/tools.md#provider--auth-tools) | 6 | List providers/models, set API keys, OAuth |
+| [Config](docs/tools.md#config-tools) | 3 | Get/update configuration |
+| [Project](docs/tools.md#project-tools) | 2 | List and inspect projects |
+| [Events](docs/tools.md#event-tools) | 1 | Poll real-time SSE events |
 
 ### Resources (10)
 
-Browseable data endpoints:
+Browseable data endpoints — your client can read these without tool calls:
 
 | URI | Description |
 |---|---|
@@ -232,100 +129,38 @@ Browseable data endpoints:
 | `opencode://mcp-servers` | MCP server status |
 | `opencode://file-status` | VCS file status |
 
-### Prompts (5)
+### Prompts (6)
 
-Guided workflow templates:
+Guided workflow templates your client can offer as selectable actions:
 
 | Prompt | Description |
 |---|---|
-| `opencode-code-review` | Structured code review from session diffs |
-| `opencode-debug` | Guided debugging workflow |
+| `opencode-code-review` | Review diffs from a session |
+| `opencode-debug` | Step-by-step debugging workflow |
 | `opencode-project-setup` | Get oriented in a new project |
-| `opencode-implement` | Have OpenCode implement a feature |
-| `opencode-session-summary` | Summarize a session |
+| `opencode-implement` | Have OpenCode build a feature |
+| `opencode-best-practices` | Setup, tool selection, monitoring, and pitfalls |
+| `opencode-session-summary` | Summarize what happened in a session |
+
+## Multi-Project Support
+
+Every tool accepts an optional `directory` parameter to target a different project. No restarts needed.
+
+```
+opencode_ask({ directory: "/home/user/mobile-app", prompt: "Add navigation" })
+opencode_ask({ directory: "/home/user/web-app", prompt: "Add auth" })
+```
 
 ## Environment Variables
 
-All environment variables are **optional**. You only need to set them if you've changed the defaults on the OpenCode server side.
+All optional. Only needed if you've changed defaults on the OpenCode server.
 
-| Variable | Description | Default | Required |
-|---|---|---|---|
-| `OPENCODE_BASE_URL` | URL of the OpenCode server | `http://127.0.0.1:4096` | No |
-| `OPENCODE_SERVER_USERNAME` | HTTP basic auth username | `opencode` | No |
-| `OPENCODE_SERVER_PASSWORD` | HTTP basic auth password | *(none — auth disabled)* | No |
-| `OPENCODE_AUTO_SERVE` | Auto-start `opencode serve` if not running | `true` | No |
-
-> **Note:** Authentication is disabled by default. It only activates when `OPENCODE_SERVER_PASSWORD` is set on both the OpenCode server and the MCP server.
-
-## How It Works
-
-```
-MCP Client  <--stdio-->  opencode-mcp  <--HTTP-->  OpenCode Server
-(Claude, Cursor, etc.)   (this package)            (opencode serve)
-```
-
-The MCP server communicates over **stdio** using the Model Context Protocol. When a client invokes a tool, the server translates it into HTTP calls against the OpenCode headless API.
-
-**Auto-start flow:** On startup, the MCP server checks if the OpenCode server is already running (via the `/global/health` endpoint). If not, it finds the `opencode` binary on your system and spawns `opencode serve` as a child process. The child is automatically cleaned up when the MCP server exits.
-
-## Working with Multiple Projects
-
-Every tool accepts an optional `directory` parameter that targets a specific project directory. This lets you work on multiple projects from a single OpenCode server without restarting anything.
-
-```
-# First-time setup: check server status and configure providers
-opencode_setup()
-
-# Set an API key (one-time, global — shared across all projects)
-opencode_auth_set({ providerId: "anthropic", type: "api", key: "sk-ant-..." })
-
-# Work on a mobile app
-opencode_ask({
-  directory: "/home/user/projects/mobile-app",
-  prompt: "Set up navigation with React Navigation"
-})
-
-# Switch to a web app — same server, different directory
-opencode_ask({
-  directory: "/home/user/projects/web-app",
-  prompt: "Add authentication to the Next.js app"
-})
-
-# Go back to the mobile app — no restart needed
-opencode_reply({
-  directory: "/home/user/projects/mobile-app",
-  sessionId: "sess_abc123",
-  prompt: "Now add a login screen"
-})
-```
-
-When `directory` is omitted, the OpenCode server uses its own working directory (where `opencode serve` was started).
-
-**How it works internally:** The `directory` parameter is sent as the `x-opencode-directory` HTTP header. The OpenCode server lazily initializes a separate instance per directory (with its own LSP, VCS, MCP servers, sessions, etc.) and caches them in memory.
-
-## Architecture
-
-```
-src/
-  index.ts              Entry point — wires everything together
-  server-manager.ts     Auto-detect, find, and start OpenCode server
-  client.ts             HTTP client with retry, SSE, error categorization
-  helpers.ts            Smart response formatting for LLM-friendly output
-  resources.ts          MCP Resources (10 browseable data endpoints)
-  prompts.ts            MCP Prompts (5 guided workflow templates)
-  tools/
-    workflow.ts         High-level workflow tools (10)
-    session.ts          Session management tools (19)
-    message.ts          Message/prompt tools (6)
-    file.ts             File and search tools (6)
-    tui.ts              TUI remote control tools (9)
-    config.ts           Config tools (3)
-    provider.ts         Provider/auth tools (6)
-    misc.ts             System, agents, LSP, MCP, logging tools (12)
-    events.ts           SSE event polling (1)
-    global.ts           Health check (1)
-    project.ts          Project tools (2)
-```
+| Variable | Default | Description |
+|---|---|---|
+| `OPENCODE_BASE_URL` | `http://127.0.0.1:4096` | OpenCode server URL |
+| `OPENCODE_SERVER_USERNAME` | `opencode` | HTTP basic auth username |
+| `OPENCODE_SERVER_PASSWORD` | *(none)* | HTTP basic auth password (enables auth when set) |
+| `OPENCODE_AUTO_SERVE` | `true` | Auto-start `opencode serve` if not running |
 
 ## Development
 
@@ -333,51 +168,33 @@ src/
 git clone https://github.com/AlaeddineMessadi/opencode-mcp.git
 cd opencode-mcp
 npm install
-npm run build    # compiles TypeScript and sets executable permissions
-npm start        # runs the MCP server
+npm run build
+npm start        # run the MCP server
 npm run dev      # watch mode
+npm test         # 275 tests
 ```
 
 ### Smoke Testing
 
-There is a local smoke test runner that spawns `opencode-mcp` over stdio and calls most tools end-to-end against your running OpenCode server:
+End-to-end test against a running OpenCode server:
 
 ```bash
-npm run build
-node scripts/mcp-smoke-test.mjs
+npm run build && node scripts/mcp-smoke-test.mjs
 ```
-
-By default it **skips tools that are destructive or require special environment state** (OAuth flows, TUI control, `config_update`, `instance_dispose`, long-running `session_init`/`session_summarize`).
 
 ## Documentation
 
-- [Getting Started](docs/getting-started.md) — step-by-step setup guide
-- [Configuration](docs/configuration.md) — all env vars and MCP client configs
-- [Tools Reference](docs/tools.md) — detailed reference for all 75 tools
-- [Resources Reference](docs/resources.md) — all 10 MCP resources
-- [Prompts Reference](docs/prompts.md) — all 5 MCP prompts
-- [Usage Examples](docs/examples.md) — real workflow examples
+- [Getting Started](docs/getting-started.md) — step-by-step setup
+- [Configuration](docs/configuration.md) — env vars and all client configs
+- [Tools Reference](docs/tools.md) — all 78 tools in detail
+- [Resources](docs/resources.md) — 10 MCP resources
+- [Prompts](docs/prompts.md) — 6 guided workflow templates
+- [Examples](docs/examples.md) — real workflow examples
 - [Architecture](docs/architecture.md) — system design and data flow
-
-## Compatible MCP Clients
-
-Works with any MCP-compatible client, including:
-
-- [Claude Desktop](https://claude.ai/download)
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
-- [Cursor](https://cursor.sh/)
-- [Windsurf](https://codeium.com/windsurf)
-- [VS Code (GitHub Copilot)](https://code.visualstudio.com/)
-- [Cline](https://github.com/cline/cline)
-- [Continue](https://continue.dev/)
-- [Zed](https://zed.dev/)
-- [Amazon Q](https://aws.amazon.com/q/developer/)
 
 ## References
 
-- [OpenCode Documentation](https://opencode.ai/docs/)
-- [OpenCode Server API](https://opencode.ai/docs/server/)
-- [OpenCode SDK](https://opencode.ai/docs/sdk/)
+- [OpenCode](https://opencode.ai/) | [OpenCode Docs](https://opencode.ai/docs/) | [OpenCode Server API](https://opencode.ai/docs/server/)
 - [Model Context Protocol](https://modelcontextprotocol.io/)
 
 ## License

@@ -1,221 +1,194 @@
 # Usage Examples
 
-Real-world examples of using `opencode-mcp` tools from an MCP client.
+Real-world examples of using opencode-mcp tools from any MCP client.
 
-## One-Shot Code Question
+## Quick Question
 
-Ask OpenCode a question and get an answer in a single call:
-
-**Tool:** `opencode_ask`
+Ask OpenCode something and get an answer in one call:
 
 ```json
-{
+opencode_ask({
   "prompt": "Explain the authentication flow in this project",
-  "title": "Auth flow explanation"
-}
+  "providerID": "anthropic",
+  "modelID": "claude-opus-4-6"
+})
 ```
 
-Returns: A new session with OpenCode's response as formatted text.
+## Build a Feature
+
+Have OpenCode implement something and wait for it to finish:
+
+```json
+opencode_run({
+  "prompt": "Add input validation to POST /api/users. Validate email format, non-empty name, and positive integer age. Return 400 with descriptive errors.",
+  "providerID": "anthropic",
+  "modelID": "claude-opus-4-6",
+  "maxDurationSeconds": 300
+})
+```
+
+Then review what it did:
+
+```json
+opencode_review_changes({ "sessionId": "<session-id>" })
+```
 
 ## Multi-Turn Conversation
 
-Start a session and have a back-and-forth:
+Start a session and iterate:
 
-**1. First message** — `opencode_ask`:
-
+**1.** `opencode_ask`:
 ```json
-{
-  "prompt": "What testing framework does this project use?",
-  "title": "Testing exploration"
-}
+{ "prompt": "What testing framework does this project use?", "title": "Testing exploration" }
 ```
 
-**2. Follow up** — `opencode_reply`:
-
+**2.** `opencode_reply`:
 ```json
-{
-  "sessionId": "<session-id-from-step-1>",
-  "prompt": "Show me an example of how to write a new test"
-}
+{ "sessionId": "<session-id>", "prompt": "Show me an example of writing a new test" }
 ```
 
-**3. Follow up again** — `opencode_reply`:
+**3.** `opencode_reply`:
+```json
+{ "sessionId": "<session-id>", "prompt": "Now add a test for UserService.create" }
+```
 
+## Background Tasks (Fire-and-Forget)
+
+Dispatch a long-running task and keep working on something else:
+
+**1. Fire the task** — `opencode_fire`:
 ```json
 {
-  "sessionId": "<session-id-from-step-1>",
-  "prompt": "Now add a test for the UserService.create method"
+  "prompt": "Refactor the entire authentication module to use JWT tokens",
+  "providerID": "anthropic",
+  "modelID": "claude-opus-4-6",
+  "title": "JWT refactor"
 }
+```
+Returns immediately with a session ID.
+
+**2. Check progress** — `opencode_check`:
+```json
+{ "sessionId": "<session-id>" }
+```
+Returns: status (running/idle), todo progress (e.g. "3/7 done, current: Add JWT middleware"), files changed count.
+
+**3. Get full results when done** — `opencode_conversation`:
+```json
+{ "sessionId": "<session-id>" }
+```
+
+## Build a Full App
+
+Chain multiple tools to build an entire project:
+
+```json
+// 1. Set up the project
+opencode_run({
+  "prompt": "Create a new Express.js API with TypeScript, SQLite, and Vitest. Include health check, CRUD for users, and error handling middleware.",
+  "title": "Build API",
+  "maxDurationSeconds": 600
+})
+
+// 2. Add features in parallel
+opencode_fire({ "prompt": "Add JWT authentication with login/register endpoints", "title": "Add auth" })
+opencode_fire({ "prompt": "Add rate limiting middleware and request logging", "title": "Add middleware" })
+
+// 3. Check both are done
+opencode_check({ "sessionId": "<auth-session-id>" })
+opencode_check({ "sessionId": "<middleware-session-id>" })
+
+// 4. Review all changes
+opencode_review_changes({ "sessionId": "<auth-session-id>" })
+opencode_review_changes({ "sessionId": "<middleware-session-id>" })
 ```
 
 ## Get Project Context
 
-Quickly understand a project you've never seen before:
+Understand a project you've never seen:
 
-**Tool:** `opencode_context`
+```json
+opencode_context({})
+```
 
+Returns: project info, VCS details (branch, status), configuration, and available agents.
+
+## Code Review
+
+Review changes from a coding session:
+
+**1.** Find the session — `opencode_sessions_overview`:
 ```json
 {}
 ```
 
-Returns: Project info, current path, VCS details (branch, status, recent commits), configuration, and available agents — all in one call.
-
-## Code Review Workflow
-
-Review changes made in a coding session:
-
-**1. Get session overview** — `opencode_sessions_overview`:
-
+**2.** Review the diff — `opencode_review_changes`:
 ```json
-{}
+{ "sessionId": "<session-id>" }
 ```
 
-**2. Review the changes** — `opencode_review_changes`:
-
+**3.** Read the conversation — `opencode_conversation`:
 ```json
-{
-  "sessionId": "<session-id>"
-}
+{ "sessionId": "<session-id>" }
 ```
-
-Returns: Formatted diffs showing what files were changed and how.
-
-**3. Get full conversation** — `opencode_conversation`:
-
-```json
-{
-  "sessionId": "<session-id>"
-}
-```
-
-Returns: The full conversation history with formatted messages.
 
 ## Search the Codebase
 
-Find code across the project:
-
-**Search for text/regex** — `opencode_find_text`:
-
 ```json
-{
-  "query": "TODO|FIXME|HACK",
-  "regex": true
-}
+// Find TODOs and FIXMEs
+opencode_find_text({ "pattern": "TODO|FIXME|HACK" })
+
+// Find config files
+opencode_find_file({ "query": "config" })
+
+// Find a function or class
+opencode_find_symbol({ "query": "handleAuth" })
 ```
 
-**Find files by name** — `opencode_find_file`:
+## Multi-Project Workflow
+
+Work on multiple projects from one client:
 
 ```json
-{
-  "query": "config"
-}
+// Mobile app
+opencode_ask({
+  "directory": "/home/user/projects/mobile-app",
+  "prompt": "Set up React Navigation with a tab navigator"
+})
+
+// Web app (same server, different project)
+opencode_ask({
+  "directory": "/home/user/projects/web-app",
+  "prompt": "Add authentication to the Next.js app"
+})
 ```
 
-**Find symbols** — `opencode_find_symbol`:
+## Provider Management
 
 ```json
-{
-  "query": "handleAuth"
-}
-```
+// Check what's available
+opencode_provider_list({})
 
-## Implement a Feature
-
-Use OpenCode to implement something:
-
-**Tool:** `opencode_ask`
-
-```json
-{
-  "prompt": "Add input validation to the POST /api/users endpoint. Validate that email is a valid email, name is non-empty, and age is a positive integer. Return 400 with descriptive error messages on validation failure.",
-  "title": "Add user input validation"
-}
-```
-
-Then check what it did:
-
-**Tool:** `opencode_review_changes`
-
-```json
-{
-  "sessionId": "<session-id>"
-}
-```
-
-## Async Operations
-
-For long-running tasks, send the prompt without waiting and poll later:
-
-**1. Send async** — `opencode_message_send_async`:
-
-```json
-{
-  "sessionId": "<session-id>",
-  "content": "Refactor the entire authentication module to use JWT tokens"
-}
-```
-
-**2. Wait for completion** — `opencode_wait`:
-
-```json
-{
-  "sessionId": "<session-id>",
-  "pollIntervalMs": 3000,
-  "maxWaitMs": 120000
-}
-```
-
-## Manage Providers & Auth
-
-**List available providers** — `opencode_provider_list`:
-
-```json
-{}
-```
-
-**Set an API key** — `opencode_auth_set`:
-
-```json
-{
+// Set an API key (one-time, global)
+opencode_auth_set({
   "providerId": "anthropic",
-  "token": "sk-ant-..."
-}
+  "type": "api",
+  "key": "sk-ant-..."
+})
+
+// Test that it works
+opencode_provider_test({ "providerId": "anthropic" })
 ```
 
-## Monitor Server Events
+## Using Prompts
 
-Poll for real-time events from the OpenCode server:
+MCP prompts are guided workflow templates your client offers as selectable actions.
 
-**Tool:** `opencode_events_poll`
-
-```json
-{
-  "durationMs": 5000
-}
-```
-
-Returns: Events collected over 5 seconds (session updates, message progress, etc.).
-
-## Use MCP Prompts
-
-MCP prompts provide guided workflow templates. Your client presents these as selectable prompts.
-
-### Code Review Prompt
-
-Select the `opencode-code-review` prompt and provide a `sessionId`. The client will receive a structured prompt that guides it through reviewing the session's diffs.
-
-### Debug Prompt
-
-Select `opencode-debug` and provide:
-- `issue`: Description of the problem
-- `context` (optional): Additional context (file paths, error messages)
-
-The client receives a step-by-step debugging workflow.
-
-### Implementation Prompt
-
-Select `opencode-implement` and provide:
-- `description`: What to build
-- `requirements` (optional): Specific requirements
-
-The client receives a structured implementation plan that uses OpenCode to build the feature.
+| Prompt | Arguments | What it does |
+|---|---|---|
+| `opencode-code-review` | `sessionId` | Reviews diffs for correctness, style, performance, security |
+| `opencode-debug` | `issue`, `context?` | Step-by-step debugging: finds files, reads code, identifies root cause |
+| `opencode-project-setup` | *(none)* | Reads README, configs, entry points, summarizes the project |
+| `opencode-implement` | `description`, `requirements?` | Sends to OpenCode's build agent, reviews changes, reports results |
+| `opencode-best-practices` | *(none)* | Guides on setup, tool selection, monitoring, and common pitfalls |
+| `opencode-session-summary` | `sessionId` | Summarizes discussion, actions, files modified, remaining work |

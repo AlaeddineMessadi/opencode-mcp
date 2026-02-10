@@ -1,60 +1,61 @@
 # Tools Reference
 
-Complete reference for all 75 tools provided by opencode-mcp.
+Complete reference for all 78 tools provided by opencode-mcp.
 
-Note: Unless otherwise stated, every tool accepts an optional `directory` parameter (absolute path) to target a specific project.
+Every tool accepts an optional `directory` parameter (absolute path) to target a specific project. All tools include [MCP tool annotations](https://modelcontextprotocol.io/docs/concepts/tools#tool-annotations) (`readOnlyHint`, `destructiveHint`) so clients can make informed decisions about tool safety.
 
 ## Table of Contents
 
-- [Workflow Tools](#workflow-tools)
-- [Project Tools](#project-tools)
-- [Session Tools](#session-tools)
-- [Message Tools](#message-tools)
-- [File & Search Tools](#file--search-tools)
-- [Config Tools](#config-tools)
-- [Provider & Auth Tools](#provider--auth-tools)
-- [TUI Control Tools](#tui-control-tools)
-- [System & Monitoring Tools](#system--monitoring-tools)
-- [Event Tools](#event-tools)
+- [Workflow Tools (13)](#workflow-tools) — start here
+- [Session Tools (19)](#session-tools)
+- [Message Tools (6)](#message-tools)
+- [File & Search Tools (6)](#file--search-tools)
+- [Config Tools (3)](#config-tools)
+- [Provider & Auth Tools (6)](#provider--auth-tools)
+- [TUI Control Tools (9)](#tui-control-tools)
+- [System & Monitoring Tools (12)](#system--monitoring-tools)
+- [Event Tools (1)](#event-tools)
+- [Project Tools (2)](#project-tools)
+- [Global Tools (1)](#global-tools)
 
 ---
 
 ## Workflow Tools
 
-High-level tools that combine multiple API calls into single, LLM-friendly operations.
+High-level tools that combine multiple API calls into single, LLM-friendly operations. **Start here** — these cover most use cases.
 
 ### `opencode_setup`
 
-Check OpenCode server health, provider configuration, and (if available) project status. Use this as the first tool call when starting work.
+Check server health, provider config, and project status. **Use this as your first call.**
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `directory` | string | no | Target project directory |
 
+---
+
 ### `opencode_ask`
 
-**One-shot interaction** — Creates a session, sends a prompt, and returns the AI response.
+One-shot interaction — creates a session, sends a prompt, returns the AI response.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `prompt` | string | yes | The question or instruction |
-| `title` | string | no | Session title (defaults to first 80 chars of prompt) |
+| `title` | string | no | Session title |
 | `providerID` | string | no | Provider (e.g. `"anthropic"`) |
-| `modelID` | string | no | Model (e.g. `"claude-3-5-sonnet-20241022"`) |
-| `agent` | string | no | Agent to use (e.g. `"build"`, `"plan"`) |
+| `modelID` | string | no | Model (e.g. `"claude-opus-4-6"`) |
+| `agent` | string | no | Agent (e.g. `"build"`, `"plan"`) |
 | `system` | string | no | System prompt override |
-
-**Example use case**: "Ask OpenCode to explain this codebase" — one tool call, one answer.
 
 ---
 
 ### `opencode_reply`
 
-Send a **follow-up message** to an existing session.
+Follow-up message in an existing session.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `sessionId` | string | yes | Session ID to reply in |
+| `sessionId` | string | yes | Session ID |
 | `prompt` | string | yes | The follow-up message |
 | `providerID` | string | no | Provider ID |
 | `modelID` | string | no | Model ID |
@@ -62,9 +63,53 @@ Send a **follow-up message** to an existing session.
 
 ---
 
+### `opencode_run`
+
+**Send a task and wait for completion.** Combines session creation, async prompt dispatch, and polling into one call. Best for tasks you want to wait on (up to 10 minutes by default).
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `prompt` | string | yes | The task or instruction |
+| `sessionId` | string | no | Existing session to continue (omit to create new) |
+| `title` | string | no | Session title (new sessions only) |
+| `providerID` | string | no | Provider ID |
+| `modelID` | string | no | Model ID |
+| `agent` | string | no | Agent to use |
+| `maxDurationSeconds` | number | no | Max wait time (default: 600 = 10 min) |
+
+---
+
+### `opencode_fire`
+
+**Fire-and-forget** — dispatch a task and return immediately. OpenCode works autonomously in the background. Use `opencode_check` to monitor progress.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `prompt` | string | yes | The task or instruction |
+| `sessionId` | string | no | Existing session to continue (omit to create new) |
+| `title` | string | no | Session title (new sessions only) |
+| `providerID` | string | no | Provider ID |
+| `modelID` | string | no | Model ID |
+| `agent` | string | no | Agent to use |
+
+Returns: session ID + monitoring instructions.
+
+---
+
+### `opencode_check`
+
+**Compact progress report** for a running session. Returns status, todo progress (completed/total + current task), and file change count. Much cheaper than `opencode_conversation` or `opencode_wait`.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `sessionId` | string | yes | Session ID to check |
+| `detailed` | boolean | no | Include last message text (default: false) |
+
+---
+
 ### `opencode_conversation`
 
-Get the **full conversation history** of a session, formatted for easy reading.
+Full conversation history of a session, formatted for reading.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -75,7 +120,7 @@ Get the **full conversation history** of a session, formatted for easy reading.
 
 ### `opencode_sessions_overview`
 
-Get a **quick overview** of all sessions with titles, IDs, and status. Status values are correctly resolved from object shapes (e.g. `{ state: "running" }`) returned by the API — no more `[object Object]`.
+Quick overview of all sessions with titles, IDs, and status.
 
 *No parameters.*
 
@@ -83,42 +128,29 @@ Get a **quick overview** of all sessions with titles, IDs, and status. Status va
 
 ### `opencode_context`
 
-Get **full project context** in one call: project info, path, VCS, config, and available agents.
+Full project context in one call: project info, path, VCS, config, agents.
 
-*No parameters.*
-
-**Example output:**
-```
-## Project
-{ "name": "my-app", "path": "/home/user/my-app", ... }
-
-## VCS (Git)
-{ "branch": "main", "remote": "origin", ... }
-
-## Agents (4)
-- build [primary]: Full development agent
-- plan [primary]: Analysis and planning
-- general [subagent]: Multi-step tasks
-- explore [subagent]: Read-only codebase exploration
-```
+*No parameters (accepts optional `directory`).*
 
 ---
 
 ### `opencode_wait`
 
-**Poll a session** until it finishes processing. Use after `opencode_message_send_async`. On timeout, provides actionable suggestions (`opencode_conversation` to check progress, `opencode_session_abort` to stop).
+Poll a session until it finishes. Use after `opencode_message_send_async`. On timeout, returns actionable suggestions.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `sessionId` | string | yes | Session ID to wait on |
-| `timeoutSeconds` | number | no | Max wait time (default: 120) |
+| `sessionId` | string | yes | Session ID |
+| `timeoutSeconds` | number | no | Max wait (default: 120) |
 | `pollIntervalMs` | number | no | Poll interval in ms (default: 2000) |
+
+> **Prefer `opencode_run`** for new tasks — it handles session creation + async send + polling in one call.
 
 ---
 
 ### `opencode_review_changes`
 
-Get a **formatted diff summary** of file changes in a session.
+Formatted diff summary of file changes in a session.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -129,349 +161,119 @@ Get a **formatted diff summary** of file changes in a session.
 
 ### `opencode_provider_test`
 
-Quick-test whether a provider is working. Creates a temporary session, sends a trivial prompt, checks the response, and cleans up.
+Quick-test whether a provider works. Creates a temporary session, sends a trivial prompt, checks the response, cleans up.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `providerId` | string | yes | Provider ID to test |
-| `modelID` | string | no | Optional model ID (if omitted, provider default is used) |
-| `directory` | string | no | Target project directory |
+| `modelID` | string | no | Model ID (defaults to provider default) |
 
 ---
 
 ### `opencode_status`
 
-At-a-glance status dashboard (health, provider count, session count, VCS).
+At-a-glance dashboard: health, provider count, session count, VCS info.
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `directory` | string | no | Target project directory |
+*No parameters (accepts optional `directory`).*
 
 ---
 
 ## Session Tools
 
-Full lifecycle management of OpenCode sessions.
+Full lifecycle management of OpenCode sessions (19 tools).
 
-### `opencode_session_list`
-
-List all sessions with titles and IDs.
-
-### `opencode_session_search`
-
-Search sessions by keyword in title (case-insensitive). Also matches on session ID.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `query` | string | yes | Search keyword |
-| `directory` | string | no | Target project directory |
-
-### `opencode_session_create`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `parentID` | string | no | Parent session ID (for child sessions) |
-| `title` | string | no | Session title |
-
-### `opencode_session_get`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `id` | string | yes | Session ID |
-
-### `opencode_session_delete`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `id` | string | yes | Session ID to delete |
-
-### `opencode_session_update`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `id` | string | yes | Session ID |
-| `title` | string | no | New title |
-
-### `opencode_session_children`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `id` | string | yes | Parent session ID |
-
-### `opencode_session_status`
-
-Get status (`running`, `idle`, `completed`, `error`) for all sessions.
-
-### `opencode_session_todo`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `id` | string | yes | Session ID |
-
-### `opencode_session_init`
-
-Analyze the project and create `AGENTS.md`. NOTE: This is a long-running operation and may take 30-60+ seconds depending on project size.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `id` | string | yes | Session ID |
-| `messageID` | string | yes | Message ID |
-| `providerID` | string | yes | Provider ID |
-| `modelID` | string | yes | Model ID |
-
-### `opencode_session_abort`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `id` | string | yes | Session ID to abort |
-
-### `opencode_session_fork`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `id` | string | yes | Session ID to fork |
-| `messageID` | string | no | Fork point (message ID) |
-
-### `opencode_session_share` / `opencode_session_unshare`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `id` | string | yes | Session ID |
-
-### `opencode_session_diff`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `id` | string | yes | Session ID |
-| `messageID` | string | no | Specific message |
-
-### `opencode_session_summarize`
-
-NOTE: This is a long-running operation and may take 30-60+ seconds.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `id` | string | yes | Session ID |
-| `providerID` | string | yes | Provider ID |
-| `modelID` | string | yes | Model ID |
-
-### `opencode_session_revert`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `id` | string | yes | Session ID |
-| `messageID` | string | yes | Message ID to revert |
-| `partID` | string | no | Specific part ID |
-
-### `opencode_session_unrevert`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `id` | string | yes | Session ID |
-
-### `opencode_session_permission`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `id` | string | yes | Session ID |
-| `permissionID` | string | yes | Permission request ID |
-| `response` | string | yes | Response string |
-| `remember` | boolean | no | Remember this decision |
+| Tool | Key Parameters | Description |
+|---|---|---|
+| `opencode_session_list` | — | List all sessions |
+| `opencode_session_create` | `title?`, `parentID?` | Create a new session |
+| `opencode_session_get` | `id` | Get session details |
+| `opencode_session_delete` | `id` | Delete a session |
+| `opencode_session_update` | `id`, `title?` | Update session properties |
+| `opencode_session_search` | `query` | Search sessions by keyword |
+| `opencode_session_children` | `id` | Get child sessions |
+| `opencode_session_status` | — | Status for all sessions |
+| `opencode_session_todo` | `id` | Get the todo list |
+| `opencode_session_init` | `id`, `messageID`, `providerID`, `modelID` | Create AGENTS.md (slow) |
+| `opencode_session_abort` | `id` | Abort a running session |
+| `opencode_session_fork` | `id`, `messageID?` | Fork a session |
+| `opencode_session_share` | `id` | Share publicly |
+| `opencode_session_unshare` | `id` | Unshare |
+| `opencode_session_diff` | `id`, `messageID?` | Get raw diff |
+| `opencode_session_summarize` | `id`, `providerID`, `modelID` | AI-summarize (slow) |
+| `opencode_session_revert` | `id`, `messageID`, `partID?` | Revert a message |
+| `opencode_session_unrevert` | `id` | Restore reverted messages |
+| `opencode_session_permission` | `id`, `permissionID`, `response`, `remember?` | Respond to permission request |
 
 ---
 
 ## Message Tools
 
-### `opencode_message_list`
+Send prompts and execute commands (6 tools).
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `sessionId` | string | yes | Session ID |
-| `limit` | number | no | Max messages |
-
-### `opencode_message_get`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `sessionId` | string | yes | Session ID |
-| `messageId` | string | yes | Message ID |
-
-### `opencode_message_send`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `sessionId` | string | yes | Session ID |
-| `text` | string | yes | Message text |
-| `providerID` | string | no | Provider ID |
-| `modelID` | string | no | Model ID |
-| `agent` | string | no | Agent |
-| `noReply` | boolean | no | If true, inject context only (no AI response) |
-| `system` | string | no | System prompt override |
-
-### `opencode_message_send_async`
-
-Same as `opencode_message_send` but returns immediately. Use `opencode_wait` to poll.
-
-### `opencode_command_execute`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `sessionId` | string | yes | Session ID |
-| `command` | string | yes | Slash command (e.g. `"init"`) |
-| `arguments` | string | no | Command arguments |
-| `agent` | string | no | Agent |
-| `providerID` | string | no | Provider ID |
-| `modelID` | string | no | Model ID |
-
-### `opencode_shell_execute`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `sessionId` | string | yes | Session ID |
-| `command` | string | yes | Shell command |
-| `agent` | string | yes | Agent |
-| `providerID` | string | no | Provider ID |
-| `modelID` | string | no | Model ID |
+| Tool | Key Parameters | Description |
+|---|---|---|
+| `opencode_message_list` | `sessionId`, `limit?` | List messages in a session |
+| `opencode_message_get` | `sessionId`, `messageId` | Get a specific message |
+| `opencode_message_send` | `sessionId`, `text`, `providerID?`, `modelID?` | Send prompt (sync, waits for response) |
+| `opencode_message_send_async` | `sessionId`, `text`, `providerID?`, `modelID?` | Send prompt (async, returns immediately) |
+| `opencode_command_execute` | `sessionId`, `command`, `arguments?` | Execute a slash command |
+| `opencode_shell_execute` | `sessionId`, `command`, `agent` | Run a shell command |
 
 ---
 
 ## File & Search Tools
 
-### `opencode_find_text`
+Search and read project files (6 tools).
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `pattern` | string | yes | Text or regex pattern |
-
-### `opencode_find_file`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `query` | string | yes | Search string (fuzzy match) |
-| `type` | `"file"` / `"directory"` | no | Filter by type |
-| `directory` | string | no | Override project root |
-| `limit` | number | no | Max results (1-200) |
-
-### `opencode_find_symbol`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `query` | string | yes | Symbol name |
-
-### `opencode_file_list`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `path` | string | no | Path to list (default: project root) |
-
-### `opencode_file_read`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `path` | string | yes | File path to read |
-
-### `opencode_file_status`
-
-Get VCS status for all tracked files. No parameters.
-
----
-
-## Project Tools
-
-### `opencode_project_list`
-
-List all projects known to the OpenCode server.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `directory` | string | no | Target project directory |
-
-### `opencode_project_current`
-
-Get the current active project.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `directory` | string | no | Target project directory |
+| Tool | Key Parameters | Description |
+|---|---|---|
+| `opencode_find_text` | `pattern` | Search text/regex across the project |
+| `opencode_find_file` | `query`, `type?`, `limit?` | Find files by name (fuzzy) |
+| `opencode_find_symbol` | `query` | Find workspace symbols (functions, classes, etc.) |
+| `opencode_file_list` | `path?` | List directory contents |
+| `opencode_file_read` | `path` | Read a file |
+| `opencode_file_status` | — | VCS status for all tracked files |
 
 ---
 
 ## Config Tools
 
-### `opencode_config_get`
+Read and update OpenCode configuration (3 tools).
 
-Get current configuration. No parameters.
-
-### `opencode_config_update`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `config` | object | yes | Partial config to merge |
-
-### `opencode_config_providers`
-
-List configured providers and default models. No parameters.
+| Tool | Key Parameters | Description |
+|---|---|---|
+| `opencode_config_get` | — | Get current config |
+| `opencode_config_update` | `config` | Update config (partial merge) |
+| `opencode_config_providers` | — | List configured providers and default models |
 
 ---
 
 ## Provider & Auth Tools
 
-### `opencode_provider_list`
+Manage LLM providers and authentication (6 tools).
 
-List providers with a compact configured/not-configured summary.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `directory` | string | no | Target project directory |
-
-### `opencode_provider_models`
-
-List available models for a specific provider.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `providerId` | string | yes | Provider ID |
-| `limit` | number | no | Max models to show (use `0` for all; default 30) |
-| `directory` | string | no | Target project directory |
-
-### `opencode_provider_auth_methods`
-
-Get available auth methods per provider. No parameters.
-
-### `opencode_provider_oauth_authorize`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `providerId` | string | yes | Provider ID |
-
-### `opencode_provider_oauth_callback`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `providerId` | string | yes | Provider ID |
-| `callbackData` | object | yes | OAuth callback payload |
-
-### `opencode_auth_set`
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `providerId` | string | yes | Provider ID (e.g. `"anthropic"`) |
-| `type` | string | yes | Auth type (e.g. `"api"`) |
-| `key` | string | yes | API key |
+| Tool | Key Parameters | Description |
+|---|---|---|
+| `opencode_provider_list` | — | List providers with connection status |
+| `opencode_provider_models` | `providerId`, `limit?` | List models for a provider |
+| `opencode_provider_auth_methods` | — | Get available auth methods |
+| `opencode_provider_oauth_authorize` | `providerId` | Start OAuth flow |
+| `opencode_provider_oauth_callback` | `providerId`, `callbackData` | Handle OAuth callback |
+| `opencode_auth_set` | `providerId`, `type`, `key` | Set API key |
 
 ---
 
 ## TUI Control Tools
 
-These tools drive the OpenCode TUI remotely. Useful for IDE integrations.
+Remote-control the OpenCode terminal UI (9 tools).
 
-| Tool | Parameters | Description |
+| Tool | Key Parameters | Description |
 |---|---|---|
-| `opencode_tui_append_prompt` | `text` | Append text to prompt |
-| `opencode_tui_submit_prompt` | — | Submit current prompt |
+| `opencode_tui_append_prompt` | `text` | Append text to prompt input |
+| `opencode_tui_submit_prompt` | — | Submit the current prompt |
 | `opencode_tui_clear_prompt` | — | Clear the prompt |
 | `opencode_tui_execute_command` | `command` | Execute a slash command |
-| `opencode_tui_show_toast` | `message`, `title?`, `variant?` | Show toast |
+| `opencode_tui_show_toast` | `message`, `title?`, `variant?` | Show toast notification |
 | `opencode_tui_open_help` | — | Open help dialog |
 | `opencode_tui_open_sessions` | — | Open session selector |
 | `opencode_tui_open_models` | — | Open model selector |
@@ -481,12 +283,14 @@ These tools drive the OpenCode TUI remotely. Useful for IDE integrations.
 
 ## System & Monitoring Tools
 
-| Tool | Parameters | Description |
+Server health, VCS, LSP, and infrastructure tools (12 tools).
+
+| Tool | Key Parameters | Description |
 |---|---|---|
 | `opencode_health` | — | Server health and version |
 | `opencode_path_get` | — | Current working path |
 | `opencode_vcs_info` | — | Git branch, remote, status |
-| `opencode_instance_dispose` | — | Shut down the instance |
+| `opencode_instance_dispose` | — | Shut down the instance (destructive) |
 | `opencode_agent_list` | — | List agents with descriptions |
 | `opencode_command_list` | — | List all slash commands |
 | `opencode_lsp_status` | — | LSP server status |
@@ -494,8 +298,7 @@ These tools drive the OpenCode TUI remotely. Useful for IDE integrations.
 | `opencode_mcp_status` | — | MCP server status |
 | `opencode_mcp_add` | `name`, `config` | Add MCP server dynamically |
 | `opencode_tool_ids` | — | List tool IDs (experimental) |
-| `opencode_tool_list` | `provider`, `model` | List tools with schemas |
-| `opencode_log` | `service`, `level`, `message`, `extra?` | Write log entry |
+| `opencode_tool_list` | `provider`, `model` | List tools with JSON schemas |
 
 ---
 
@@ -508,4 +311,21 @@ Poll for real-time SSE events from the server.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `durationMs` | number | no | Collection duration (default: 3000, max: 30000) |
-| `maxEvents` | number | no | Max events to collect (default: 50) |
+| `maxEvents` | number | no | Max events (default: 50) |
+
+---
+
+## Project Tools
+
+| Tool | Key Parameters | Description |
+|---|---|---|
+| `opencode_project_list` | — | List all known projects |
+| `opencode_project_current` | — | Get the current active project |
+
+---
+
+## Global Tools
+
+| Tool | Key Parameters | Description |
+|---|---|---|
+| `opencode_log` | `service`, `level`, `message`, `extra?` | Write a log entry |

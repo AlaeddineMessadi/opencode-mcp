@@ -2,12 +2,12 @@
 
 ## Overview
 
-opencode-mcp is a **stdio-based MCP server** that acts as a bridge between MCP clients and the OpenCode headless HTTP server.
+opencode-mcp is a **stdio-based MCP server** that bridges MCP clients to the OpenCode headless HTTP API.
 
 ```
 ┌─────────────┐     stdio      ┌───────────────┐     HTTP      ┌──────────────────┐
-│  MCP Client  │ ◄────────────► │  opencode-mcp  │ ◄──────────► │  OpenCode Server │
-│  (Claude,    │   JSON-RPC     │  (this project) │   REST API   │  (opencode serve)│
+│  MCP Client  │ <────────────> │  opencode-mcp  │ <──────────> │  OpenCode Server │
+│  (Claude,    │   JSON-RPC     │  (this package) │   REST API   │  (opencode serve)│
 │   Cursor)    │                │                 │              │                  │
 └─────────────┘                └───────────────┘              └──────────────────┘
 ```
@@ -17,12 +17,13 @@ opencode-mcp is a **stdio-based MCP server** that acts as a bridge between MCP c
 ```
 src/
 ├── index.ts              Main entry point — creates server, registers everything
+├── server-manager.ts     Auto-detect, find, and start OpenCode server
 ├── client.ts             HTTP client with retry, SSE, error categorization
-├── helpers.ts            Response formatting for LLM-friendly output
+├── helpers.ts            Response formatting + tool annotation constants
 ├── resources.ts          MCP Resources (10 browseable data endpoints)
-├── prompts.ts            MCP Prompts (5 guided workflow templates)
+├── prompts.ts            MCP Prompts (6 guided workflow templates)
 └── tools/
-    ├── workflow.ts       High-level workflow tools (10) — start here
+    ├── workflow.ts       High-level workflow tools (13) — start here
     ├── session.ts        Session lifecycle management (19)
     ├── message.ts        Message/prompt operations (6)
     ├── file.ts           File and search operations (6)
@@ -35,80 +36,81 @@ src/
     └── project.ts        Project operations (2)
 ```
 
-## Key Design Decisions
-
-### 1. Layered Tool Architecture
-
-Tools are organized in two layers:
-
-- **Low-level tools** — 1:1 mapping to OpenCode API endpoints. Every API endpoint has a corresponding tool.
-- **High-level workflow tools** — Composite operations that combine multiple API calls. These are what LLMs should reach for first.
-
-The workflow tools (`opencode_ask`, `opencode_reply`, `opencode_context`, etc.) drastically reduce the number of tool calls an LLM needs. Instead of "create session → send message → parse response", it's just `opencode_ask`.
-
-### 2. Smart Response Formatting
-
-Raw OpenCode API responses are deeply nested JSON with message parts, tool invocations, metadata, etc. The `helpers.ts` module transforms these into human-readable text:
-
-- **Message parts** → extracted text content, tool call summaries
-- **Diffs** → formatted with file paths, add/delete counts
-- **Session lists** → bullet-point format with titles and IDs
-- **Large responses** → auto-truncated at 50K characters
-
-This reduces token usage and makes it easier for LLMs to reason about the data.
-
-### 3. Robust HTTP Client
-
-The `OpenCodeClient` class handles:
-
-- **Automatic retry** — Exponential backoff for HTTP 429 (rate limit), 502, 503, 504
-- **Error categorization** — `OpenCodeError` with `.isTransient`, `.isNotFound`, `.isAuth` properties
-- **204 No Content** — Properly handled across all HTTP methods
-- **Request timeouts** — Configurable per-request via `AbortController`
-- **SSE streaming** — Async generator for Server-Sent Events
-
-### 4. Three MCP Primitives
-
-The server uses all three MCP primitives:
+## Three MCP Primitives
 
 | Primitive | Count | Purpose |
 |---|---|---|
-| **Tools** | 75 | Actions the LLM can take |
+| **Tools** | 78 | Actions the LLM can take |
 | **Resources** | 10 | Data the LLM can browse |
-| **Prompts** | 5 | Guided multi-step workflows |
+| **Prompts** | 6 | Guided multi-step workflows |
 
-### 5. Registration Pattern
+## Key Design Decisions
 
-Each tool group is a separate file exporting a `register*` function that receives `(server, client)`. This keeps files focused and makes it easy to add new tool groups without touching the main entry point.
+### Layered Tool Architecture
+
+Tools are in two layers:
+
+- **Low-level** — 1:1 mapping to OpenCode API endpoints (session, message, file, etc.)
+- **Workflow** — Composite operations that combine multiple calls (`opencode_ask`, `opencode_run`, `opencode_fire`, etc.)
+
+The workflow layer drastically reduces tool calls. Instead of "create session, send message, parse response", it's one `opencode_ask` call. For long-running tasks, `opencode_run` handles session creation + async dispatch + polling in one call. `opencode_fire` + `opencode_check` enables background work with lightweight monitoring.
+
+### Tool Annotations
+
+Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`) so clients can make informed decisions about safety. Read-only tools like `opencode_check` and `opencode_context` are annotated as safe; destructive tools like `opencode_instance_dispose` are flagged.
+
+### Smart Response Formatting
+
+Raw API responses are deeply nested JSON. The `helpers.ts` module transforms these into human-readable text:
+
+- Message parts -> extracted text, tool call summaries
+- Diffs -> formatted with file paths, add/delete counts
+- Session lists -> bullet-point format with titles and IDs
+- Large responses -> auto-truncated at 50K characters
+
+### Robust HTTP Client
+
+`OpenCodeClient` handles:
+
+- **Automatic retry** — Exponential backoff for 429, 502, 503, 504
+- **Error categorization** — `OpenCodeError` with `.isTransient`, `.isNotFound`, `.isAuth`
+- **204 No Content** — Properly handled
+- **SSE streaming** — Async generator for Server-Sent Events
+
+### Auto-Start
+
+On startup, the server checks if OpenCode is running (via `/global/health`). If not, it finds the `opencode` binary and spawns `opencode serve` as a child process. The child is cleaned up when the MCP server exits.
 
 ## Data Flow
 
-### Tool Call Flow
+### Tool Call
 
 ```
-1. MCP Client sends JSON-RPC tool call request via stdio
-2. McpServer dispatches to registered tool handler
-3. Tool handler builds HTTP request parameters
-4. OpenCodeClient makes HTTP call to OpenCode server
-5. Response is formatted by helpers.ts
-6. Formatted text is returned as MCP tool result
+1. MCP Client sends JSON-RPC tool call via stdio
+2. McpServer dispatches to registered handler
+3. Handler builds HTTP request
+4. OpenCodeClient makes HTTP call to OpenCode
+5. Response formatted by helpers.ts
+6. Formatted text returned as MCP tool result
 7. McpServer sends JSON-RPC response via stdio
 ```
 
-### Resource Read Flow
+### Resource Read
 
 ```
-1. MCP Client requests resource by URI
-2. McpServer dispatches to registered resource handler
-3. Handler fetches data from OpenCode via HTTP
-4. Data is returned as resource content (JSON or text)
+1. Client requests resource by URI (e.g. opencode://health)
+2. Handler fetches from OpenCode via HTTP
+3. Data returned as resource content (JSON)
 ```
 
-### SSE Event Flow (opencode_events_poll)
+### SSE Events
 
 ```
-1. Tool handler opens SSE connection to /event
-2. Events are collected for the specified duration
-3. Connection is closed after timeout or max events
-4. Collected events are formatted and returned as tool result
+1. opencode_events_poll opens SSE connection to /event
+2. Events collected for specified duration
+3. Connection closed, events formatted and returned
 ```
+
+## Registration Pattern
+
+Each tool group is a file exporting a `register*` function that receives `(server, client)`. New tool groups can be added without touching the entry point.
