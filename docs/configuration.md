@@ -10,12 +10,16 @@ All environment variables are **optional**. You only need to set them if you've 
 | `OPENCODE_SERVER_USERNAME` | HTTP basic auth username | `opencode` | No |
 | `OPENCODE_SERVER_PASSWORD` | HTTP basic auth password | *(none — auth disabled)* | No |
 | `OPENCODE_AUTO_SERVE` | Auto-start `opencode serve` if not running | `true` | No |
+| `OPENCODE_DEFAULT_PROVIDER` | Default provider ID when not specified per-tool | *(none)* | No |
+| `OPENCODE_DEFAULT_MODEL` | Default model ID when not specified per-tool | *(none)* | No |
 
 ### Notes
 
 - **Authentication is disabled by default.** It only activates when `OPENCODE_SERVER_PASSWORD` is set on both the OpenCode server and the MCP server.
 - **Username and password are both optional.** The default username is `opencode`, matching the OpenCode server's default. You only need to set these if you've explicitly enabled auth on the server.
 - **The base URL** should point to where `opencode serve` is listening. If running on the same machine with default settings, you don't need to set this.
+- **Default provider/model** are optional. When set, tools that accept `providerID`/`modelID` will use these as fallbacks when not specified per-call. Both must be set together. Example: `OPENCODE_DEFAULT_PROVIDER=anthropic` + `OPENCODE_DEFAULT_MODEL=claude-sonnet-4-5`.
+- **Directory validation** — The `directory` parameter on all tools must be an absolute path to an existing directory. Relative paths, non-existent paths, and trailing slashes are handled automatically (resolved or rejected with a helpful error).
 
 ## MCP Client Configurations
 

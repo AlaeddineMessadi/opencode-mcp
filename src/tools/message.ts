@@ -7,6 +7,7 @@ import {
   formatMessageResponse,
   analyzeMessageResponse,
   formatMessageList,
+  applyModelDefaults,
   directoryParam,
 } from "../helpers.js";
 
@@ -101,9 +102,8 @@ export function registerMessageTools(
         const body: Record<string, unknown> = {
           parts: [{ type: "text", text }],
         };
-        if (providerID && modelID) {
-          body.model = { providerID, modelID };
-        }
+        const model = applyModelDefaults(providerID, modelID);
+        if (model) body.model = model;
         if (agent) body.agent = agent;
         if (noReply !== undefined) body.noReply = noReply;
         if (system) body.system = system;
@@ -152,9 +152,8 @@ export function registerMessageTools(
         const body: Record<string, unknown> = {
           parts: [{ type: "text", text }],
         };
-        if (providerID && modelID) {
-          body.model = { providerID, modelID };
-        }
+        const model = applyModelDefaults(providerID, modelID);
+        if (model) body.model = model;
         if (agent) body.agent = agent;
         await client.post(`/session/${sessionId}/prompt_async`, body, { directory });
         return toolResult(
@@ -198,9 +197,8 @@ export function registerMessageTools(
           arguments: args ?? "",
         };
         if (agent) body.agent = agent;
-        if (providerID && modelID) {
-          body.model = { providerID, modelID };
-        }
+        const cmdModel = applyModelDefaults(providerID, modelID);
+        if (cmdModel) body.model = cmdModel;
         const result = await client.post(
           `/session/${sessionId}/command`,
           body,
@@ -227,9 +225,8 @@ export function registerMessageTools(
     async ({ sessionId, command, agent, providerID, modelID, directory }) => {
       try {
         const body: Record<string, unknown> = { command, agent };
-        if (providerID && modelID) {
-          body.model = { providerID, modelID };
-        }
+        const shellModel = applyModelDefaults(providerID, modelID);
+        if (shellModel) body.model = shellModel;
         const result = await client.post(
           `/session/${sessionId}/shell`,
           body,

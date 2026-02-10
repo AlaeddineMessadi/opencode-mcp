@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   formatMessageResponse,
   formatMessageList,
@@ -9,6 +9,9 @@ import {
   redactSecrets,
   resolveSessionStatus,
   safeStringify,
+  setModelDefaults,
+  applyModelDefaults,
+  normalizeDirectory,
   toolResult,
   toolError,
   toolJson,
@@ -816,5 +819,162 @@ describe("directoryParam", () => {
   it("rejects non-string values", () => {
     const result = directoryParam.safeParse(123);
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── setModelDefaults / applyModelDefaults ───────────────────────────────
+
+describe("applyModelDefaults", () => {
+  beforeEach(() => {
+    // Reset defaults before each test
+    setModelDefaults(undefined, undefined);
+  });
+
+  afterEach(() => {
+    setModelDefaults(undefined, undefined);
+  });
+
+  it("returns explicit params when both are provided", () => {
+    const result = applyModelDefaults("anthropic", "claude-opus-4-6");
+    expect(result).toEqual({ providerID: "anthropic", modelID: "claude-opus-4-6" });
+  });
+
+  it("returns undefined when neither explicit params nor defaults are set", () => {
+    const result = applyModelDefaults();
+    expect(result).toBeUndefined();
+  });
+
+  it("returns undefined when only providerID is provided (incomplete pair)", () => {
+    const result = applyModelDefaults("anthropic");
+    expect(result).toBeUndefined();
+  });
+
+  it("returns undefined when only modelID is provided (incomplete pair)", () => {
+    const result = applyModelDefaults(undefined, "claude-opus-4-6");
+    expect(result).toBeUndefined();
+  });
+
+  it("falls back to env-var defaults when no explicit params", () => {
+    setModelDefaults("openai", "gpt-4o");
+    const result = applyModelDefaults();
+    expect(result).toEqual({ providerID: "openai", modelID: "gpt-4o" });
+  });
+
+  it("falls back to defaults when only providerID is given (incomplete)", () => {
+    setModelDefaults("openai", "gpt-4o");
+    const result = applyModelDefaults("anthropic");
+    expect(result).toEqual({ providerID: "openai", modelID: "gpt-4o" });
+  });
+
+  it("explicit params take priority over defaults", () => {
+    setModelDefaults("openai", "gpt-4o");
+    const result = applyModelDefaults("anthropic", "claude-opus-4-6");
+    expect(result).toEqual({ providerID: "anthropic", modelID: "claude-opus-4-6" });
+  });
+
+  it("returns undefined when only default providerID is set (incomplete pair)", () => {
+    setModelDefaults("openai", undefined);
+    const result = applyModelDefaults();
+    expect(result).toBeUndefined();
+  });
+
+  it("returns undefined when only default modelID is set (incomplete pair)", () => {
+    setModelDefaults(undefined, "gpt-4o");
+    const result = applyModelDefaults();
+    expect(result).toBeUndefined();
+  });
+});
+
+// ─── normalizeDirectory ──────────────────────────────────────────────────
+
+describe("normalizeDirectory", () => {
+  it("returns undefined for undefined input", () => {
+    expect(normalizeDirectory(undefined)).toBeUndefined();
+  });
+
+  it("returns undefined for empty string input", () => {
+    expect(normalizeDirectory("")).toBeUndefined();
+  });
+
+  it("normalizes a valid absolute path", () => {
+    const result = normalizeDirectory("/tmp");
+    expect(result).toBe("/tmp");
+  });
+
+  it("removes trailing slashes", () => {
+    const result = normalizeDirectory("/tmp/");
+    expect(result).toBe("/tmp");
+  });
+
+  it("resolves .. in paths", () => {
+    const result = normalizeDirectory("/tmp/foo/..");
+    expect(result).toBe("/tmp");
+  });
+
+  it("resolves . in paths", () => {
+    // /tmp/. resolves to /tmp, which exists
+    const result = normalizeDirectory("/tmp/.");
+    expect(result).toBe("/tmp");
+  });
+
+  it("throws for non-existent directory", () => {
+    expect(() => normalizeDirectory("/this/path/absolutely/does/not/exist/xyz123"))
+      .toThrow("does not exist");
+  });
+
+  it("accepts a known existing directory", () => {
+    // /tmp always exists on Linux
+    const result = normalizeDirectory("/tmp");
+    expect(result).toBe("/tmp");
+  });
+});
+
+// ─── diagnoseError (via toolError) ───────────────────────────────────────
+
+describe("toolError diagnoseError enhancements", () => {
+  it("suggests OPENCODE_BASE_URL check for ECONNREFUSED", () => {
+    const result = toolError(new Error("fetch failed: ECONNREFUSED 127.0.0.1:4096"));
+    const text = result.content[0].text;
+    expect(text).toContain("OPENCODE_BASE_URL");
+    expect(text).toContain("auto-reconnect");
+  });
+
+  it("suggests network check for ENOTFOUND", () => {
+    const result = toolError(new Error("getaddrinfo ENOTFOUND some-host"));
+    const text = result.content[0].text;
+    expect(text).toContain("Cannot reach");
+    expect(text).toContain("OPENCODE_BASE_URL");
+  });
+
+  it("suggests network check for EHOSTUNREACH", () => {
+    const result = toolError(new Error("connect EHOSTUNREACH 192.168.1.100"));
+    const text = result.content[0].text;
+    expect(text).toContain("Cannot reach");
+  });
+
+  it("suggests retry for ETIMEDOUT", () => {
+    const result = toolError(new Error("connect ETIMEDOUT 10.0.0.1:4096"));
+    const text = result.content[0].text;
+    expect(text).toContain("not responding");
+    expect(text).toContain("retry");
+  });
+
+  it("suggests opencode_run for timeout errors", () => {
+    const result = toolError(new Error("Request timed out after 120s"));
+    const text = result.content[0].text;
+    expect(text).toContain("opencode_run");
+  });
+
+  it("suggests absolute path for directory validation errors", () => {
+    const result = toolError(new Error("Invalid directory: \"./foo\" is not an absolute path"));
+    const text = result.content[0].text;
+    expect(text).toContain("absolute path");
+    expect(text).toContain("/home/user/my-project");
+  });
+
+  it("suggests absolute path for directory not found errors", () => {
+    const result = toolError(new Error("Directory not found: \"/bad/path\" does not exist"));
+    const text = result.content[0].text;
+    expect(text).toContain("absolute path");
   });
 });

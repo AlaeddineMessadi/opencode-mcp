@@ -7,12 +7,19 @@
  *  - Proper 204 No Content handling on all methods
  *  - SSE streaming support
  *  - Error categorization (transient vs permanent)
+ *  - Directory path normalization and validation
+ *  - Lazy server reconnection on connection failure
  */
+
+import { normalizeDirectory } from "./helpers.js";
+import { ensureServer, isServerRunning } from "./server-manager.js";
 
 export interface OpenCodeClientOptions {
   baseUrl: string;
   username?: string;
   password?: string;
+  /** Enable lazy server reconnection when connection fails. */
+  autoServe?: boolean;
 }
 
 export class OpenCodeError extends Error {
@@ -48,12 +55,31 @@ export class OpenCodeError extends Error {
 const MAX_RETRIES = 2;
 const BASE_DELAY_MS = 500;
 
+/** Max reconnection attempts per MCP session lifetime. */
+const MAX_RECONNECT_ATTEMPTS = 3;
+
+/** Check if an error looks like a connection failure (server unreachable). */
+function isConnectionError(err: Error): boolean {
+  const msg = err.message.toLowerCase();
+  return (
+    msg.includes("econnrefused") ||
+    msg.includes("enotfound") ||
+    msg.includes("ehostunreach") ||
+    msg.includes("fetch failed") ||
+    msg.includes("network error") ||
+    msg.includes("socket hang up")
+  );
+}
+
 export class OpenCodeClient {
   private baseUrl: string;
   private authHeader?: string;
+  private autoServe: boolean;
+  private reconnectAttempts = 0;
 
   constructor(options: OpenCodeClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
+    this.autoServe = options.autoServe ?? false;
     if (options.password) {
       const username = options.username ?? "opencode";
       this.authHeader =
@@ -86,8 +112,10 @@ export class OpenCodeClient {
     if (this.authHeader) {
       h["Authorization"] = this.authHeader;
     }
-    if (directory) {
-      h["x-opencode-directory"] = directory;
+    // Normalize and validate the directory path before sending as header
+    const normalized = normalizeDirectory(directory);
+    if (normalized) {
+      h["x-opencode-directory"] = normalized;
     }
     return h;
   }
@@ -158,6 +186,32 @@ export class OpenCodeClient {
         if (e instanceof OpenCodeError) throw e;
         lastError = e as Error;
         if (attempt >= MAX_RETRIES) break;
+      }
+    }
+
+    // Lazy reconnection: if all retries exhausted and error looks like a
+    // connection failure, try restarting the server and retry once.
+    if (
+      this.autoServe &&
+      this.reconnectAttempts < MAX_RECONNECT_ATTEMPTS &&
+      lastError &&
+      isConnectionError(lastError)
+    ) {
+      this.reconnectAttempts++;
+      console.error(
+        `Connection failed (attempt ${this.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}), attempting server reconnection...`,
+      );
+      try {
+        const status = await isServerRunning(this.baseUrl);
+        if (!status.healthy) {
+          await ensureServer({ baseUrl: this.baseUrl, autoServe: true });
+        }
+        // Retry the original request once after reconnection
+        return this.request<T>(method, path, opts);
+      } catch (reconnectErr) {
+        console.error(
+          `Server reconnection failed: ${reconnectErr instanceof Error ? reconnectErr.message : String(reconnectErr)}`,
+        );
       }
     }
 

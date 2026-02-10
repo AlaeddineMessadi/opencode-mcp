@@ -2033,4 +2033,85 @@ describe("Tool handlers", () => {
       expect(result.content[0].text).toContain("Branch: feature-x (dirty)");
     });
   });
+
+  // ─── Directory validation: early fail before .catch(() => null) ──────
+  describe("early directory validation in Promise.all tools", () => {
+    // These tools use Promise.all with .catch(() => null) which previously
+    // swallowed directory validation errors. The fix validates directory
+    // BEFORE the Promise.all so the error reaches toolError().
+
+    function setupTools() {
+      const mockClient = createMockClient({
+        get: vi.fn().mockResolvedValue({}),
+      });
+      const tools = new Map<string, Function>();
+      const mockServer = {
+        tool: vi.fn((...args: unknown[]) => {
+          tools.set(args[0] as string, args[args.length - 1] as Function);
+        }),
+      } as unknown as McpServer;
+      registerWorkflowTools(mockServer, mockClient);
+      return { tools, client: mockClient };
+    }
+
+    it("opencode_status returns directory error for non-existent path", async () => {
+      const { tools, client } = setupTools();
+      const handler = tools.get("opencode_status")!;
+      const result = await handler({ directory: "/this/does/not/exist/at/all" });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("does not exist");
+      // Should NOT show UNREACHABLE — that was the bug
+      expect(result.content[0].text).not.toContain("UNREACHABLE");
+      // client.get should never be called
+      expect((client as any).get).not.toHaveBeenCalled();
+    });
+
+    it("opencode_status returns directory error for relative path", async () => {
+      const { tools, client } = setupTools();
+      const handler = tools.get("opencode_status")!;
+      // resolve("./relative") produces an absolute path, so this will be
+      // a "does not exist" error rather than "not absolute". That's fine —
+      // the point is we get a clear error, not UNREACHABLE.
+      const result = await handler({ directory: "./nonexistent-dir" });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("does not exist");
+      expect(result.content[0].text).not.toContain("UNREACHABLE");
+    });
+
+    it("opencode_context returns directory error for non-existent path", async () => {
+      const { tools, client } = setupTools();
+      const handler = tools.get("opencode_context")!;
+      const result = await handler({ directory: "/no/such/directory" });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("does not exist");
+      expect((client as any).get).not.toHaveBeenCalled();
+    });
+
+    it("opencode_check returns directory error for non-existent path", async () => {
+      const { tools, client } = setupTools();
+      const handler = tools.get("opencode_check")!;
+      const result = await handler({
+        sessionId: "test-session-id",
+        directory: "/no/such/directory",
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("does not exist");
+      expect((client as any).get).not.toHaveBeenCalled();
+    });
+
+    it("opencode_status works with valid directory (no false positives)", async () => {
+      const { tools } = setupTools();
+      const handler = tools.get("opencode_status")!;
+      // /tmp always exists
+      const result = await handler({ directory: "/tmp" });
+      expect(result.isError).toBeUndefined();
+    });
+
+    it("opencode_status works with undefined directory (no-op)", async () => {
+      const { tools } = setupTools();
+      const handler = tools.get("opencode_status")!;
+      const result = await handler({});
+      expect(result.isError).toBeUndefined();
+    });
+  });
 });

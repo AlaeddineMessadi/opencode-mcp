@@ -7,6 +7,8 @@
  */
 
 import { z } from "zod";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -32,6 +34,84 @@ export const directoryParam = z
       "When provided, the request targets that project. " +
       "If omitted, the OpenCode server uses its own working directory.",
   );
+
+// ── Default Provider/Model ────────────────────────────────────────────
+
+/**
+ * Module-level defaults for provider and model.
+ * Set via `setModelDefaults()` during startup from env vars.
+ * If not set, tools fall back to whatever the OpenCode server decides.
+ */
+let _defaultProviderID: string | undefined;
+let _defaultModelID: string | undefined;
+
+/**
+ * Set the global default provider and model.
+ * Called once from index.ts during startup.
+ */
+export function setModelDefaults(providerID?: string, modelID?: string): void {
+  _defaultProviderID = providerID;
+  _defaultModelID = modelID;
+}
+
+/**
+ * Apply model defaults: use explicit params if both are provided,
+ * otherwise fall back to env-var defaults if both are set,
+ * otherwise return undefined (let the server decide).
+ *
+ * Returns `{ providerID, modelID }` or `undefined`.
+ */
+export function applyModelDefaults(
+  providerID?: string,
+  modelID?: string,
+): { providerID: string; modelID: string } | undefined {
+  // Explicit params take priority
+  if (providerID && modelID) {
+    return { providerID, modelID };
+  }
+  // Fall back to env-var defaults
+  if (_defaultProviderID && _defaultModelID) {
+    return { providerID: _defaultProviderID, modelID: _defaultModelID };
+  }
+  // No defaults available — let the server decide
+  return undefined;
+}
+
+// ── Directory Validation ─────────────────────────────────────────────
+
+/**
+ * Normalize and validate a directory path:
+ *  - Resolves to absolute (handles "..", trailing slashes, etc.)
+ *  - Rejects relative paths (must start with /)
+ *  - Validates that the path exists on disk
+ *
+ * Returns the normalized path, or undefined if input was undefined.
+ * Throws a descriptive Error on validation failure.
+ */
+export function normalizeDirectory(directory?: string): string | undefined {
+  if (!directory) return undefined;
+
+  // Resolve to absolute (handles "..", ".", trailing slashes)
+  const normalized = resolve(directory);
+
+  // Must be an absolute path
+  if (!normalized.startsWith("/")) {
+    throw new Error(
+      `Invalid directory: "${directory}" is not an absolute path. ` +
+        `Provide a full path like "/home/user/my-project".`,
+    );
+  }
+
+  // Must exist on disk
+  if (!existsSync(normalized)) {
+    throw new Error(
+      `Directory not found: "${normalized}" does not exist. ` +
+        `Check the path and try again.`,
+    );
+  }
+
+  return normalized;
+}
 
 /**
  * Extract a human-readable summary from a message response.
@@ -494,15 +574,33 @@ function diagnoseError(msg: string): string {
     tips.push("- Check credentials with `opencode_provider_test`");
     tips.push("- Set a key with `opencode_auth_set`");
   } else if (lower.includes("timeout") || lower.includes("timed out") || lower.includes("aborted")) {
-    tips.push("- Use `opencode_message_send_async` + `opencode_wait` for long tasks");
+    tips.push("- Use `opencode_run` for complex tasks (handles polling automatically)");
+    tips.push("- Or use `opencode_message_send_async` + `opencode_wait` for manual control");
     tips.push("- Check session progress with `opencode_conversation`");
   } else if (lower.includes("not found") && lower.includes("session")) {
     tips.push("- List active sessions with `opencode_sessions_overview`");
   } else if (lower.includes("rate limit") || lower.includes("429")) {
     tips.push("- Wait a moment and retry, or switch provider");
     tips.push("- Try a free model: `opencode_ask` with providerID `opencode`, modelID `minimax-m2.1-free`");
-  } else if (lower.includes("unreachable") || lower.includes("econnrefused") || lower.includes("fetch failed")) {
+  } else if (lower.includes("econnrefused")) {
+    tips.push("- The OpenCode server is not accepting connections");
     tips.push("- Is `opencode serve` running? Check with `opencode_setup`");
+    tips.push("- Verify OPENCODE_BASE_URL is correct (default: http://127.0.0.1:4096)");
+    tips.push("- The server will auto-reconnect on the next request if OPENCODE_AUTO_SERVE is enabled");
+  } else if (lower.includes("enotfound") || lower.includes("ehostunreach")) {
+    tips.push("- Cannot reach the OpenCode server host");
+    tips.push("- Check that OPENCODE_BASE_URL points to a reachable address");
+    tips.push("- If running remotely, verify network connectivity");
+  } else if (lower.includes("etimedout")) {
+    tips.push("- The server is not responding (connection timed out)");
+    tips.push("- The server may be overloaded or starting up — retry in a few seconds");
+    tips.push("- Check with `opencode_setup` to verify server health");
+  } else if (lower.includes("unreachable") || lower.includes("fetch failed")) {
+    tips.push("- Is `opencode serve` running? Check with `opencode_setup`");
+    tips.push("- Verify OPENCODE_BASE_URL is correct (default: http://127.0.0.1:4096)");
+  } else if (lower.includes("directory not found") || lower.includes("not an absolute path")) {
+    tips.push("- The `directory` parameter must be an absolute path to an existing directory");
+    tips.push("- Example: `/home/user/my-project` (not `./my-project` or `~/my-project`)");
   }
 
   return tips.join("\n");

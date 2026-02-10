@@ -24,12 +24,15 @@
  *   OPENCODE_SERVER_USERNAME  - Username for HTTP basic auth (default: opencode)
  *   OPENCODE_SERVER_PASSWORD  - Password for HTTP basic auth (optional)
  *   OPENCODE_AUTO_SERVE       - Set to "false" to disable auto-start (default: true)
+ *   OPENCODE_DEFAULT_PROVIDER - Default provider ID when not specified per-tool (optional)
+ *   OPENCODE_DEFAULT_MODEL    - Default model ID when not specified per-tool (optional)
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { OpenCodeClient } from "./client.js";
 import { ensureServer } from "./server-manager.js";
+import { setModelDefaults } from "./helpers.js";
 
 // Tool groups
 import { registerGlobalTools } from "./tools/global.js";
@@ -53,8 +56,13 @@ const baseUrl =
 const username = process.env.OPENCODE_SERVER_USERNAME;
 const password = process.env.OPENCODE_SERVER_PASSWORD;
 const autoServe = process.env.OPENCODE_AUTO_SERVE !== "false";
+const defaultProvider = process.env.OPENCODE_DEFAULT_PROVIDER;
+const defaultModel = process.env.OPENCODE_DEFAULT_MODEL;
 
-const client = new OpenCodeClient({ baseUrl, username, password });
+// Set global model defaults from env vars (used by applyModelDefaults() in tools)
+setModelDefaults(defaultProvider, defaultModel);
+
+const client = new OpenCodeClient({ baseUrl, username, password, autoServe });
 
 const server = new McpServer(
   {
@@ -136,8 +144,8 @@ const server = new McpServer(
       "```",
       "",
       "## Important Notes",
-      "- ALWAYS specify `providerID` and `modelID` when using `opencode_ask`, `opencode_reply`, `opencode_message_send`, or `opencode_message_send_async`. Without these, the agent may return empty responses.",
-      "- The `directory` parameter on every tool targets a specific project. Omit it to use the server's default project.",
+      "- ALWAYS specify `providerID` and `modelID` when using `opencode_ask`, `opencode_reply`, `opencode_message_send`, or `opencode_message_send_async`. Without these, the agent may return empty responses. If OPENCODE_DEFAULT_PROVIDER and OPENCODE_DEFAULT_MODEL env vars are set, they will be used as fallbacks when you don't specify them.",
+      "- The `directory` parameter on every tool targets a specific project. Omit it to use the server's default project. Must be an absolute path to an existing directory — relative paths and non-existent paths are rejected with a helpful error.",
       "- Tools marked with `readOnlyHint: true` in their annotations are safe and don't modify state.",
       "- Tools marked with `destructiveHint: true` (`opencode_instance_dispose`, `opencode_session_delete`) permanently delete data — confirm with the user before calling.",
       "- `opencode_wait` sends `notifications/message` progress updates while blocking. If it times out, it returns a progress report instead of failing.",
@@ -189,8 +197,11 @@ async function main() {
   // Step 2: Connect the MCP transport.
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  const defaultsInfo = defaultProvider && defaultModel
+    ? ` | defaults: ${defaultProvider}/${defaultModel}`
+    : "";
   console.error(
-    `opencode-mcp v1.9.0 started (OpenCode server at ${baseUrl})`,
+    `opencode-mcp v1.9.0 started (OpenCode server at ${baseUrl}${defaultsInfo})`,
   );
 }
 

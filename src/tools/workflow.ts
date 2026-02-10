@@ -14,6 +14,8 @@ import {
   isProviderConfigured,
   redactSecrets,
   resolveSessionStatus,
+  applyModelDefaults,
+  normalizeDirectory,
   toolResult,
   toolError,
   directoryParam,
@@ -258,9 +260,8 @@ export function registerWorkflowTools(
         const body: Record<string, unknown> = {
           parts: [{ type: "text", text: prompt }],
         };
-        if (providerID && modelID) {
-          body.model = { providerID, modelID };
-        }
+        const model = applyModelDefaults(providerID, modelID);
+        if (model) body.model = model;
         if (agent) body.agent = agent;
         if (system) body.system = system;
 
@@ -275,7 +276,8 @@ export function registerWorkflowTools(
 
         // 4. Format and return
         const formatted = formatMessageResponse(response);
-        const parts = [`Session: ${sessionId}`];
+        const dirLabel = directory ? `Directory: ${directory}` : "Directory: (server default)";
+        const parts = [`${dirLabel}\nSession: ${sessionId}`];
         if (formatted) parts.push(formatted);
         if (analysis.warning) {
           parts.push(`\n--- WARNING ---\n${analysis.warning}`);
@@ -304,9 +306,8 @@ export function registerWorkflowTools(
         const body: Record<string, unknown> = {
           parts: [{ type: "text", text: prompt }],
         };
-        if (providerID && modelID) {
-          body.model = { providerID, modelID };
-        }
+        const model = applyModelDefaults(providerID, modelID);
+        if (model) body.model = model;
         if (agent) body.agent = agent;
 
         const response = await client.post(
@@ -321,6 +322,10 @@ export function registerWorkflowTools(
         if (formatted) parts.push(formatted);
         if (analysis.warning) {
           parts.push(`\n--- WARNING ---\n${analysis.warning}`);
+        }
+        // Session-directory consistency note
+        if (sessionId && directory) {
+          parts.push(`\n_Note: Using session ${sessionId} in directory ${directory}. Ensure this session belongs to this project._`);
         }
         return toolResult(
           parts.join("\n\n") || "Empty response.",
@@ -411,6 +416,10 @@ export function registerWorkflowTools(
     readOnly,
     async ({ directory }) => {
       try {
+        // Validate directory early — before Promise.all with .catch(() => null)
+        // swallows the validation error.
+        directory = normalizeDirectory(directory) as typeof directory;
+
         const [project, path, vcs, config, agents] = await Promise.all([
           client.get("/project/current", undefined, directory).catch(() => null),
           client.get("/path", undefined, directory).catch(() => null),
@@ -675,17 +684,22 @@ export function registerWorkflowTools(
           parts: [{ type: "text", text: prompt }],
           noReply: false,
         };
-        if (providerID && modelID) {
-          body.model = { providerID, modelID };
-        }
+        const model = applyModelDefaults(providerID, modelID);
+        if (model) body.model = model;
         if (agent) body.agent = agent;
 
         await client.post(`/session/${sid}/message`, body, { directory });
+
+        // Session-directory consistency note
+        const dirNote = sessionId && directory
+          ? `\n_Note: Using session ${sid} in directory ${directory}. Ensure this session belongs to this project._`
+          : "";
 
         // 3. Poll until done
         const timeout = (maxDurationSeconds ?? 600) * 1000;
         const interval = 3000;
         const start = Date.now();
+        const dirLabel = directory ? `Directory: ${directory}\n` : "";
 
         while (Date.now() - start < timeout) {
           await new Promise((r) => setTimeout(r, interval));
@@ -714,13 +728,13 @@ export function registerWorkflowTools(
             } catch { /* non-critical */ }
 
             return toolResult(
-              `Session: ${sid}\nStatus: completed${todoSummary}\n\n${lastMsg || "(no response text)"}`,
+              `${dirLabel}Session: ${sid}\nStatus: completed${todoSummary}${dirNote}\n\n${lastMsg || "(no response text)"}`,
             );
           }
 
           if (status === "error") {
             return toolResult(
-              `Session: ${sid}\nStatus: error\n\nThe session ended with an error. Use \`opencode_conversation({sessionId: "${sid}"})\` to see what happened.`,
+              `${dirLabel}Session: ${sid}\nStatus: error${dirNote}\n\nThe session ended with an error. Use \`opencode_conversation({sessionId: "${sid}"})\` to see what happened.`,
               true,
             );
           }
@@ -738,7 +752,7 @@ export function registerWorkflowTools(
         } catch { /* non-critical */ }
 
         return toolResult(
-          `Session: ${sid}\nStatus: still running after ${maxDurationSeconds ?? 600}s${todoProgress}\n\n` +
+          `${dirLabel}Session: ${sid}\nStatus: still running after ${maxDurationSeconds ?? 600}s${todoProgress}${dirNote}\n\n` +
           `The session is still working. Options:\n` +
           `- \`opencode_check({sessionId: "${sid}"})\` — quick progress check\n` +
           `- \`opencode_wait({sessionId: "${sid}", timeoutSeconds: 300})\` — wait longer\n` +
@@ -783,15 +797,15 @@ export function registerWorkflowTools(
           parts: [{ type: "text", text: prompt }],
           noReply: false,
         };
-        if (providerID && modelID) {
-          body.model = { providerID, modelID };
-        }
+        const model = applyModelDefaults(providerID, modelID);
+        if (model) body.model = model;
         if (agent) body.agent = agent;
 
         await client.post(`/session/${sid}/message`, body, { directory });
 
+        const dirLabel = directory ? `Directory: ${directory}\n` : "";
         return toolResult(
-          `Task dispatched to session: ${sid}\n\n` +
+          `${dirLabel}Task dispatched to session: ${sid}\n\n` +
           `OpenCode is now working autonomously. Use these tools to monitor:\n` +
           `- \`opencode_check({sessionId: "${sid}"})\` — quick progress check\n` +
           `- \`opencode_session_todo({id: "${sid}"})\` — see the agent's task list\n` +
@@ -819,6 +833,9 @@ export function registerWorkflowTools(
     readOnly,
     async ({ sessionId, detailed, directory }) => {
       try {
+        // Validate directory early — before .catch(() => null) swallows the error
+        directory = normalizeDirectory(directory) as typeof directory;
+
         // Parallel fetch: status, todos, session info, optionally last message
         const promises: Promise<unknown>[] = [
           client.get("/session/status", undefined, directory),
@@ -903,6 +920,10 @@ export function registerWorkflowTools(
     readOnly,
     async ({ directory }) => {
       try {
+        // Validate directory early — before Promise.all with .catch(() => null)
+        // swallows the validation error.
+        directory = normalizeDirectory(directory) as typeof directory;
+
         const [health, providerRaw, sessions, vcs] = await Promise.all([
           client.get("/global/health", undefined, directory).catch(() => null),
           client.get("/provider", undefined, directory).catch(() => null),

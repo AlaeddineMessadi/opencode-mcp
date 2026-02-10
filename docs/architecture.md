@@ -76,6 +76,18 @@ Raw API responses are deeply nested JSON. The `helpers.ts` module transforms the
 - **Error categorization** — `OpenCodeError` with `.isTransient`, `.isNotFound`, `.isAuth`
 - **204 No Content** — Properly handled
 - **SSE streaming** — Async generator for Server-Sent Events
+- **Directory validation** — Paths are normalized (resolved to absolute, trailing slashes removed) and validated (must exist on disk) before being sent as the `x-opencode-directory` header
+- **Lazy reconnection** — If all retries fail due to connection errors (`ECONNREFUSED`, `ENOTFOUND`, etc.) and `autoServe` is enabled, the client attempts to restart the OpenCode server and retry once (up to 3 reconnection attempts per MCP session)
+
+### Default Provider/Model
+
+Tools that accept `providerID` and `modelID` apply a three-tier resolution:
+
+1. **Explicit params** — If both are passed to the tool call, use them
+2. **Env-var defaults** — If `OPENCODE_DEFAULT_PROVIDER` and `OPENCODE_DEFAULT_MODEL` are set, use them as fallback
+3. **Server default** — If neither is available, let the OpenCode server decide (may result in empty responses if no provider is configured)
+
+This is implemented via `applyModelDefaults()` in `helpers.ts`, called from all 8 tools that accept model params.
 
 ### Auto-Start
 

@@ -161,6 +161,8 @@ All optional. Only needed if you've changed defaults on the OpenCode server.
 | `OPENCODE_SERVER_USERNAME` | `opencode` | HTTP basic auth username |
 | `OPENCODE_SERVER_PASSWORD` | *(none)* | HTTP basic auth password (enables auth when set) |
 | `OPENCODE_AUTO_SERVE` | `true` | Auto-start `opencode serve` if not running |
+| `OPENCODE_DEFAULT_PROVIDER` | *(none)* | Default provider ID when not specified per-tool (e.g. `anthropic`) |
+| `OPENCODE_DEFAULT_MODEL` | *(none)* | Default model ID when not specified per-tool (e.g. `claude-sonnet-4-5`) |
 
 ## Development
 
@@ -171,7 +173,7 @@ npm install
 npm run build
 npm start        # run the MCP server
 npm run dev      # watch mode
-npm test         # 275 tests
+npm test         # 311 tests
 ```
 
 ### Smoke Testing
