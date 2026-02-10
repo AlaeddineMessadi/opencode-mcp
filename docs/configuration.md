@@ -200,6 +200,31 @@ Then use `opencode-mcp` directly in your config:
 }
 ```
 
+## Permissions (Headless Mode)
+
+In headless mode, OpenCode may pause sessions waiting for permission to use tools (file writes, shell commands, etc.). This blocks progress silently.
+
+**Recommended: Auto-allow all permissions** by adding to your `opencode.json`:
+
+```json
+{
+  "permission": "allow"
+}
+```
+
+Or set it at runtime:
+
+```
+opencode_config_update({ config: { permission: "allow" } })
+```
+
+If you prefer manual control, use the permission tools to detect and unblock stuck sessions:
+
+| Tool | Description |
+|---|---|
+| `opencode_permission_list` | List all pending permission requests across sessions |
+| `opencode_session_permission` | Reply to a permission request (`once`, `always`, `reject`) |
+
 ## Auto-Start
 
 By default, the MCP server **automatically starts** `opencode serve` if it's not already running. To disable this:

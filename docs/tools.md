@@ -1,13 +1,13 @@
 # Tools Reference
 
-Complete reference for all 78 tools provided by opencode-mcp.
+Complete reference for all 79 tools provided by opencode-mcp.
 
 Every tool accepts an optional `directory` parameter (absolute path) to target a specific project. All tools include [MCP tool annotations](https://modelcontextprotocol.io/docs/concepts/tools#tool-annotations) (`readOnlyHint`, `destructiveHint`) so clients can make informed decisions about tool safety.
 
 ## Table of Contents
 
 - [Workflow Tools (13)](#workflow-tools) — start here
-- [Session Tools (19)](#session-tools)
+- [Session Tools (20)](#session-tools)
 - [Message Tools (6)](#message-tools)
 - [File & Search Tools (6)](#file--search-tools)
 - [Config Tools (3)](#config-tools)
@@ -180,7 +180,7 @@ At-a-glance dashboard: health, provider count, session count, VCS info.
 
 ## Session Tools
 
-Full lifecycle management of OpenCode sessions (19 tools).
+Full lifecycle management of OpenCode sessions (20 tools).
 
 | Tool | Key Parameters | Description |
 |---|---|---|
@@ -202,7 +202,8 @@ Full lifecycle management of OpenCode sessions (19 tools).
 | `opencode_session_summarize` | `id`, `providerID`, `modelID` | AI-summarize (slow) |
 | `opencode_session_revert` | `id`, `messageID`, `partID?` | Revert a message |
 | `opencode_session_unrevert` | `id` | Restore reverted messages |
-| `opencode_session_permission` | `id`, `permissionID`, `response`, `remember?` | Respond to permission request |
+| `opencode_session_permission` | `id`, `permissionID`, `reply` | Respond to a permission request (`once`, `always`, `reject`) |
+| `opencode_permission_list` | — | List all pending permission requests across sessions |
 
 ---
 

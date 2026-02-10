@@ -9,7 +9,7 @@
 
 opencode-mcp is an MCP server that bridges your AI tools (Claude, Cursor, Windsurf, VS Code, etc.) to OpenCode's headless API. It lets your AI delegate real coding work — building features, debugging, refactoring, running tests — to OpenCode sessions that autonomously read, write, and execute code in your project.
 
-**78 tools** | **10 resources** | **6 prompts** | **Multi-project** | **Auto-start**
+**79 tools** | **10 resources** | **6 prompts** | **Multi-project** | **Auto-start**
 
 ## Why Use This?
 
@@ -57,7 +57,7 @@ Your MCP client calls tools over stdio. This server translates them into HTTP re
 
 ## Key Tools
 
-The 78 tools are organized into tiers. Start with the workflow tools — they handle the common patterns in a single call.
+The 79 tools are organized into tiers. Start with the workflow tools — they handle the common patterns in a single call.
 
 ### Workflow Tools (13) — Start Here
 
@@ -102,7 +102,7 @@ opencode_check({ sessionId: "..." })
 | Category | Count | Description |
 |---|---|---|
 | [Workflow](docs/tools.md#workflow-tools) | 13 | High-level composite operations |
-| [Session](docs/tools.md#session-tools) | 19 | Create, list, fork, share, abort, revert sessions |
+| [Session](docs/tools.md#session-tools) | 20 | Create, list, fork, share, abort, revert, permissions |
 | [Message](docs/tools.md#message-tools) | 6 | Send prompts, execute commands, run shell |
 | [File & Search](docs/tools.md#file--search-tools) | 6 | Search text/regex, find files/symbols, read files |
 | [System](docs/tools.md#system--monitoring-tools) | 13 | Health, VCS, LSP, MCP servers, agents, logging |
@@ -173,7 +173,7 @@ npm install
 npm run build
 npm start        # run the MCP server
 npm run dev      # watch mode
-npm test         # 311 tests
+npm test         # 316 tests
 ```
 
 ### Smoke Testing
@@ -188,7 +188,7 @@ npm run build && node scripts/mcp-smoke-test.mjs
 
 - [Getting Started](docs/getting-started.md) — step-by-step setup
 - [Configuration](docs/configuration.md) — env vars and all client configs
-- [Tools Reference](docs/tools.md) — all 78 tools in detail
+- [Tools Reference](docs/tools.md) — all 79 tools in detail
 - [Resources](docs/resources.md) — 10 MCP resources
 - [Prompts](docs/prompts.md) — 6 guided workflow templates
 - [Examples](docs/examples.md) — real workflow examples

@@ -383,22 +383,69 @@ export function registerSessionTools(
     },
   );
 
+  // ─── Permission: list pending ─────────────────────────────────────────
+  server.tool(
+    "opencode_permission_list",
+    "List all pending permission requests across all sessions. When a session is blocked waiting for approval (e.g. to run a shell command or access a file outside the project), it appears here. Respond with `opencode_session_permission`.",
+    {
+      directory: directoryParam,
+    },
+    readOnly,
+    async ({ directory }) => {
+      try {
+        const requests = (await client.get("/permission", undefined, directory)) as Array<Record<string, unknown>>;
+        if (!requests || !Array.isArray(requests) || requests.length === 0) {
+          return toolResult("No pending permission requests.");
+        }
+
+        const lines = requests.map((r) => {
+          const id = r.id ?? "?";
+          const session = r.sessionID ?? "?";
+          const perm = r.permission ?? "?";
+          const patterns = Array.isArray(r.patterns) ? (r.patterns as string[]).join(", ") : "";
+          const tool = r.tool as Record<string, unknown> | undefined;
+          const toolName = tool?.name ?? tool?.tool ?? "";
+          let line = `- **${perm}** [${id}] (session: ${session})`;
+          if (toolName) line += `\n  Tool: ${toolName}`;
+          if (patterns) line += `\n  Patterns: ${patterns}`;
+          // Show what "always" would approve
+          const always = Array.isArray(r.always) ? (r.always as string[]).join(", ") : "";
+          if (always) line += `\n  Always would approve: ${always}`;
+          return line;
+        });
+
+        return toolResult(
+          `## Pending Permission Requests (${requests.length})\n\n` +
+          lines.join("\n\n") +
+          `\n\nRespond with: \`opencode_session_permission({id: "SESSION_ID", permissionID: "PERM_ID", reply: "once"|"always"|"reject"})\``
+        );
+      } catch (e) {
+        return toolError(e);
+      }
+    },
+  );
+
+  // ─── Permission: respond ──────────────────────────────────────────────
   server.tool(
     "opencode_session_permission",
-    "Respond to a permission request in a session",
+    "Respond to a permission request in a session. Use `opencode_permission_list` to see pending requests. Reply values: 'once' (approve this request only), 'always' (approve this + future matching requests for this session), 'reject' (deny the request).",
     {
       id: z.string().describe("Session ID"),
       permissionID: z.string().describe("Permission request ID"),
-      response: z.string().describe("Response to the permission request"),
-      remember: z.boolean().optional().describe("Whether to remember this decision"),
+      reply: z.enum(["once", "always", "reject"]).describe("Response to the permission request: 'once' to approve once, 'always' to auto-approve matching future requests, 'reject' to deny"),
       directory: directoryParam,
     },
-    async ({ id, permissionID, response, remember, directory }) => {
+    async ({ id, permissionID, reply, directory }) => {
       try {
-        const body: Record<string, unknown> = { response };
-        if (remember !== undefined) body.remember = remember;
-        await client.post(`/session/${id}/permissions/${permissionID}`, body, { directory });
-        return toolResult("Permission response sent.");
+        // Try the new API first (POST /permission/{requestID}/reply)
+        try {
+          await client.post(`/permission/${permissionID}/reply`, { reply }, { directory });
+          return toolResult(`Permission ${reply === "reject" ? "rejected" : "approved"} (${reply}).`);
+        } catch {
+          // Fall back to the deprecated session-scoped endpoint
+          await client.post(`/session/${id}/permissions/${permissionID}`, { response: reply }, { directory });
+          return toolResult(`Permission ${reply === "reject" ? "rejected" : "approved"} (${reply}).`);
+        }
       } catch (e) {
         return toolError(e);
       }

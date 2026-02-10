@@ -90,14 +90,16 @@ describe("Tool registration", () => {
   });
 
   describe("registerSessionTools", () => {
-    it("registers 19 session tools", () => {
+    it("registers 20 session tools", () => {
       const { tools } = captureTools(registerSessionTools);
-      expect(tools.size).toBe(19);
+      expect(tools.size).toBe(20);
       expect(tools.has("opencode_session_list")).toBe(true);
       expect(tools.has("opencode_session_create")).toBe(true);
       expect(tools.has("opencode_session_delete")).toBe(true);
       expect(tools.has("opencode_session_diff")).toBe(true);
       expect(tools.has("opencode_session_fork")).toBe(true);
+      expect(tools.has("opencode_permission_list")).toBe(true);
+      expect(tools.has("opencode_session_permission")).toBe(true);
     });
   });
 
@@ -1453,6 +1455,149 @@ describe("Tool handlers", () => {
       const handler = tools.get("opencode_session_search")!;
       const result = await handler({ query: "anything" });
       expect(result.content[0].text).toContain("No sessions found.");
+    });
+  });
+
+  // ─── Permission tools ────────────────────────────────────────────────
+  describe("opencode_permission_list", () => {
+    it("returns pending permission requests with details", async () => {
+      const mockClient = createMockClient({
+        get: vi.fn().mockResolvedValue([
+          {
+            id: "perm_1",
+            sessionID: "ses_abc",
+            permission: "bash",
+            patterns: ["npm test"],
+            always: ["npm *"],
+            tool: { name: "bash" },
+          },
+          {
+            id: "perm_2",
+            sessionID: "ses_def",
+            permission: "edit",
+            patterns: ["/etc/hosts"],
+            always: [],
+          },
+        ]),
+      });
+      const tools = new Map<string, Function>();
+      const mockServer = {
+        tool: vi.fn((...args: unknown[]) => {
+          tools.set(args[0] as string, args[args.length - 1] as Function);
+        }),
+      } as unknown as McpServer;
+      registerSessionTools(mockServer, mockClient);
+
+      const handler = tools.get("opencode_permission_list")!;
+      const result = await handler({});
+      const text = result.content[0].text;
+      expect(text).toContain("Pending Permission Requests (2)");
+      expect(text).toContain("bash");
+      expect(text).toContain("perm_1");
+      expect(text).toContain("ses_abc");
+      expect(text).toContain("npm test");
+      expect(text).toContain("npm *");
+      expect(text).toContain("edit");
+      expect(text).toContain("perm_2");
+      expect(result.isError).toBeUndefined();
+    });
+
+    it("returns friendly message when no pending requests", async () => {
+      const mockClient = createMockClient({
+        get: vi.fn().mockResolvedValue([]),
+      });
+      const tools = new Map<string, Function>();
+      const mockServer = {
+        tool: vi.fn((...args: unknown[]) => {
+          tools.set(args[0] as string, args[args.length - 1] as Function);
+        }),
+      } as unknown as McpServer;
+      registerSessionTools(mockServer, mockClient);
+
+      const handler = tools.get("opencode_permission_list")!;
+      const result = await handler({});
+      expect(result.content[0].text).toBe("No pending permission requests.");
+    });
+  });
+
+  describe("opencode_session_permission", () => {
+    it("sends reply via new API endpoint", async () => {
+      const mockClient = createMockClient({
+        post: vi.fn().mockResolvedValue({}),
+      });
+      const tools = new Map<string, Function>();
+      const mockServer = {
+        tool: vi.fn((...args: unknown[]) => {
+          tools.set(args[0] as string, args[args.length - 1] as Function);
+        }),
+      } as unknown as McpServer;
+      registerSessionTools(mockServer, mockClient);
+
+      const handler = tools.get("opencode_session_permission")!;
+      const result = await handler({
+        id: "ses_abc",
+        permissionID: "perm_1",
+        reply: "always",
+      });
+      expect(result.content[0].text).toContain("approved");
+      expect(result.content[0].text).toContain("always");
+      // Should call the new endpoint first
+      expect((mockClient as any).post).toHaveBeenCalledWith(
+        "/permission/perm_1/reply",
+        { reply: "always" },
+        { directory: undefined },
+      );
+    });
+
+    it("shows rejected for reject reply", async () => {
+      const mockClient = createMockClient({
+        post: vi.fn().mockResolvedValue({}),
+      });
+      const tools = new Map<string, Function>();
+      const mockServer = {
+        tool: vi.fn((...args: unknown[]) => {
+          tools.set(args[0] as string, args[args.length - 1] as Function);
+        }),
+      } as unknown as McpServer;
+      registerSessionTools(mockServer, mockClient);
+
+      const handler = tools.get("opencode_session_permission")!;
+      const result = await handler({
+        id: "ses_abc",
+        permissionID: "perm_1",
+        reply: "reject",
+      });
+      expect(result.content[0].text).toContain("rejected");
+    });
+
+    it("falls back to deprecated endpoint when new API fails", async () => {
+      let callCount = 0;
+      const mockClient = createMockClient({
+        post: vi.fn().mockImplementation((path: string) => {
+          callCount++;
+          if (path.startsWith("/permission/")) {
+            return Promise.reject(new Error("404 not found"));
+          }
+          return Promise.resolve({});
+        }),
+      });
+      const tools = new Map<string, Function>();
+      const mockServer = {
+        tool: vi.fn((...args: unknown[]) => {
+          tools.set(args[0] as string, args[args.length - 1] as Function);
+        }),
+      } as unknown as McpServer;
+      registerSessionTools(mockServer, mockClient);
+
+      const handler = tools.get("opencode_session_permission")!;
+      const result = await handler({
+        id: "ses_abc",
+        permissionID: "perm_1",
+        reply: "once",
+      });
+      expect(result.content[0].text).toContain("approved");
+      // Should have tried new endpoint first, then deprecated
+      expect((mockClient as any).post).toHaveBeenCalledTimes(2);
     });
   });
 

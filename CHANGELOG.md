@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-02-10
+
+### Added
+
+- **`opencode_permission_list` tool** — lists all pending permission requests across sessions, showing permission type, session ID, patterns, and tool name. Helps detect and unblock sessions stuck waiting for approval in headless mode.
+- **`OPENCODE_DEFAULT_PROVIDER` / `OPENCODE_DEFAULT_MODEL` env vars** — set default provider and model for all tool calls. Three-tier resolution: explicit params → env defaults → server fallback. Implemented via `applyModelDefaults()` across all 8 model-accepting tools.
+- **`normalizeDirectory()` path validation** — resolves paths to absolute, strips trailing slashes, resolves `..`, and rejects non-existent directories with descriptive errors.
+- **Lazy server reconnection** — on `ECONNREFUSED`/`ENOTFOUND` after all retries, auto-restarts the OpenCode server (max 3 reconnection attempts per MCP session).
+- **Enhanced `diagnoseError()`** — 6 new error patterns with contextual suggestions (empty response, model errors, permission issues, config problems).
+- **Directory display in workflow responses** — `opencode_run`, `opencode_fire`, `opencode_check`, `opencode_status` now show the active project directory.
+- **Session-directory consistency warnings** — warns when a session was created for a different directory than the current request.
+- **Permissions guidance in instructions** — recommends `"permission": "allow"` in `opencode.json` for headless use, documents permission tools.
+
+### Changed
+
+- **`opencode_session_permission` updated** — now uses the new API (`POST /permission/{requestID}/reply`) with automatic fallback to the deprecated endpoint. `reply` parameter changed from free string to enum: `"once"` | `"always"` | `"reject"`. Removed the old `remember` parameter.
+
+### Fixed
+
+- **Directory validation errors swallowed by `.catch(() => null)`** — `opencode_status`, `opencode_context`, and `opencode_check` used `Promise.all` with `.catch(() => null)` which silently ate validation errors (showing "UNREACHABLE" instead of "directory not found"). Fixed by adding early `normalizeDirectory()` before `Promise.all` in all 3 tools.
+
+### Removed
+
+- Demo projects (`projects/snake-game/`, `projects/nextjs-todo-app/`) — these were test artifacts.
+
+### Stats
+
+- Tool count: 79 (up from 78)
+- Tests: 316 (up from 275)
+
 ## [1.9.0] - 2026-02-10
 
 ### Added

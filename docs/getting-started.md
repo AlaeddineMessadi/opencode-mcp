@@ -52,7 +52,7 @@ If it returns data from OpenCode, everything is working.
 
 ## What's Available
 
-You now have access to **78 tools**, **10 resources**, and **6 prompts**. Start with these:
+You now have access to **79 tools**, **10 resources**, and **6 prompts**. Start with these:
 
 | Tool | What it does |
 |---|---|
@@ -121,6 +121,6 @@ If you prefer to manage the OpenCode server yourself:
 ## Next Steps
 
 - [Configuration](configuration.md) — all env vars and client configs
-- [Tools Reference](tools.md) — all 78 tools
+- [Tools Reference](tools.md) — all 79 tools
 - [Examples](examples.md) — real workflow examples
 - [Prompts](prompts.md) — 6 guided workflow templates

@@ -67,7 +67,7 @@ const client = new OpenCodeClient({ baseUrl, username, password, autoServe });
 const server = new McpServer(
   {
     name: "opencode-mcp",
-    version: "1.9.0",
+    version: "1.10.0",
     description:
       "MCP server wrapping the OpenCode AI coding agent. " +
       "Delegates complex coding tasks (build apps, refactor, debug) to an autonomous AI agent. " +
@@ -78,7 +78,7 @@ const server = new McpServer(
       "# OpenCode MCP — Guide for LLM Clients",
       "",
       "You are connected to OpenCode, an autonomous AI coding agent that can build, edit, and debug software projects.",
-      "This server exposes ~78 tools organized into tiers. Use high-level tools first; drop to low-level only when needed.",
+      "This server exposes ~79 tools organized into tiers. Use high-level tools first; drop to low-level only when needed.",
       "",
       "## Getting Started (First Time)",
       "1. Call `opencode_setup` — checks server health, shows configured providers, and suggests next steps.",
@@ -110,6 +110,7 @@ const server = new McpServer(
       "### Tier 4 — Fine-Grained Control",
       "- `opencode_session_*` — create, delete, fork, abort, share sessions",
       "- `opencode_message_*` — send messages, list history, execute commands",
+      "- `opencode_permission_list` / `opencode_session_permission` — check and respond to permission requests",
       "- `opencode_file_*` / `opencode_find_*` — search files, read content, check VCS status",
       "- `opencode_provider_*` — manage providers, auth, OAuth flows",
       "",
@@ -142,6 +143,12 @@ const server = new McpServer(
       "```",
       'opencode_reply({sessionId: "ses_xxx", prompt: "Now add form validation", providerID: "anthropic", modelID: "claude-sonnet-4-5"})',
       "```",
+      "",
+      "## Permissions",
+      "OpenCode may pause a session to ask for permission (e.g. to run a shell command or access files outside the project).",
+      "- **Recommended for headless/automation:** Set `\"permission\": \"allow\"` in `opencode.json` to auto-approve all operations. Without this, sessions can block waiting for approval.",
+      "- **If a session seems stuck:** Call `opencode_permission_list` to check for pending permission requests, then respond with `opencode_session_permission`.",
+      "- You can also set permissions at runtime: `opencode_config_update({config: {permission: \"allow\"}})`",
       "",
       "## Important Notes",
       "- ALWAYS specify `providerID` and `modelID` when using `opencode_ask`, `opencode_reply`, `opencode_message_send`, or `opencode_message_send_async`. Without these, the agent may return empty responses. If OPENCODE_DEFAULT_PROVIDER and OPENCODE_DEFAULT_MODEL env vars are set, they will be used as fallbacks when you don't specify them.",

@@ -24,7 +24,7 @@ src/
 ├── prompts.ts            MCP Prompts (6 guided workflow templates)
 └── tools/
     ├── workflow.ts       High-level workflow tools (13) — start here
-    ├── session.ts        Session lifecycle management (19)
+    ├── session.ts        Session lifecycle management (20)
     ├── message.ts        Message/prompt operations (6)
     ├── file.ts           File and search operations (6)
     ├── tui.ts            TUI remote control (9)
@@ -40,7 +40,7 @@ src/
 
 | Primitive | Count | Purpose |
 |---|---|---|
-| **Tools** | 78 | Actions the LLM can take |
+| **Tools** | 79 | Actions the LLM can take |
 | **Resources** | 10 | Data the LLM can browse |
 | **Prompts** | 6 | Guided multi-step workflows |
 
@@ -126,3 +126,11 @@ On startup, the server checks if OpenCode is running (via `/global/health`). If 
 ## Registration Pattern
 
 Each tool group is a file exporting a `register*` function that receives `(server, client)`. New tool groups can be added without touching the entry point.
+
+### Permission Handling
+
+In headless mode, OpenCode may pause sessions waiting for tool-use permissions (e.g. file writes, shell commands). This blocks progress silently. The MCP server addresses this with:
+
+- **`opencode_permission_list`** — Lists all pending permission requests across sessions so the LLM can detect and unblock stuck sessions
+- **`opencode_session_permission`** — Replies to a specific permission request with `once`, `always`, or `reject`
+- **Recommended config** — Set `"permission": "allow"` in `opencode.json` or call `opencode_config_update({ config: { permission: "allow" } })` at runtime to auto-approve all tool use in headless mode
