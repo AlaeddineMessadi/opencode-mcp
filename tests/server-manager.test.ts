@@ -109,7 +109,40 @@ describe("isServerRunning", () => {
     expect(result).toEqual({ healthy: true, version: "1.2.0" });
     expect(fetchMock).toHaveBeenCalledWith(
       "http://127.0.0.1:4096/global/health",
-      expect.objectContaining({ method: "GET" }),
+      expect.objectContaining({ 
+        method: "GET",
+        headers: {}
+      }),
+    );
+  });
+
+  it("includes authorization header when password is provided", async () => {
+    mockFetchHealthy("1.2.0");
+    const result = await isServerRunning("http://127.0.0.1:4096", "admin", "secret123");
+    expect(result).toEqual({ healthy: true, version: "1.2.0" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:4096/global/health",
+      expect.objectContaining({ 
+        method: "GET",
+        headers: {
+          "Authorization": "Basic YWRtaW46c2VjcmV0MTIz"
+        }
+      }),
+    );
+  });
+
+  it("uses default username 'opencode' when password provided without username", async () => {
+    mockFetchHealthy("1.2.0");
+    const result = await isServerRunning("http://127.0.0.1:4096", undefined, "secret123");
+    expect(result).toEqual({ healthy: true, version: "1.2.0" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:4096/global/health",
+      expect.objectContaining({ 
+        method: "GET",
+        headers: {
+          "Authorization": "Basic b3BlbmNvZGU6c2VjcmV0MTIz"
+        }
+      }),
     );
   });
 
@@ -136,7 +169,10 @@ describe("isServerRunning", () => {
     await isServerRunning("http://127.0.0.1:4096/");
     expect(fetchMock).toHaveBeenCalledWith(
       "http://127.0.0.1:4096/global/health",
-      expect.anything(),
+      expect.objectContaining({ 
+        method: "GET",
+        headers: {}
+      }),
     );
   });
 
@@ -228,6 +264,29 @@ describe("ensureServer", () => {
     });
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       expect.stringContaining("already running"),
+    );
+  });
+
+  it("includes authorization header when checking server with auth", async () => {
+    mockFetchHealthy("1.2.0");
+    const result = await ensureServer({
+      baseUrl: "http://127.0.0.1:4096",
+      username: "admin",
+      password: "secret123",
+    });
+    expect(result).toEqual({
+      running: true,
+      version: "1.2.0",
+      managedByUs: false,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:4096/global/health",
+      expect.objectContaining({ 
+        method: "GET",
+        headers: {
+          "Authorization": "Basic YWRtaW46c2VjcmV0MTIz"
+        }
+      }),
     );
   });
 

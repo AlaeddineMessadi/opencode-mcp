@@ -23,6 +23,10 @@ export interface ServerManagerOptions {
   autoServe?: boolean;
   /** Max time (ms) to wait for the server to become healthy after spawning. */
   startupTimeoutMs?: number;
+  /** Username for HTTP basic auth (optional) */
+  username?: string;
+  /** Password for HTTP basic auth (optional) */
+  password?: string;
 }
 
 export interface ServerStatus {
@@ -44,13 +48,23 @@ let shutdownRegistered = false;
  */
 export async function isServerRunning(
   baseUrl: string,
+  username?: string,
+  password?: string,
 ): Promise<{ healthy: boolean; version?: string }> {
   try {
     const url = `${baseUrl.replace(/\/$/, "")}/global/health`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3_000);
+    
+    const headers: Record<string, string> = {};
+    if (password) {
+      const user = username ?? "opencode";
+      headers["Authorization"] = "Basic " + Buffer.from(`${user}:${password}`).toString("base64");
+    }
+    
     const res = await fetch(url, {
       method: "GET",
+      headers,
       signal: controller.signal,
     });
     clearTimeout(timeout);
@@ -132,10 +146,12 @@ function parseBaseUrl(baseUrl: string): { hostname: string; port: number } {
 async function waitForHealthy(
   baseUrl: string,
   timeoutMs: number,
+  username?: string,
+  password?: string,
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const { healthy } = await isServerRunning(baseUrl);
+    const { healthy } = await isServerRunning(baseUrl, username, password);
     if (healthy) return true;
     await new Promise((r) => setTimeout(r, HEALTH_POLL_INTERVAL_MS));
   }
@@ -271,7 +287,7 @@ export async function ensureServer(
   const timeoutMs = opts.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
 
   // Step 1: Check if server is already running.
-  const existing = await isServerRunning(baseUrl);
+  const existing = await isServerRunning(baseUrl, opts.username, opts.password);
   if (existing.healthy) {
     console.error(
       `OpenCode server already running at ${baseUrl} (v${existing.version ?? "unknown"})`,
