@@ -194,6 +194,8 @@ export async function startServer(
   binaryPath: string,
   baseUrl: string,
   timeoutMs: number = DEFAULT_STARTUP_TIMEOUT_MS,
+  username?: string,
+  password?: string,
 ): Promise<{ version?: string }> {
   const { hostname, port } = parseBaseUrl(baseUrl);
 
@@ -242,7 +244,7 @@ export async function startServer(
 
   // Race: either the server becomes healthy or the child crashes.
   const healthy = await Promise.race([
-    waitForHealthy(baseUrl, timeoutMs),
+    waitForHealthy(baseUrl, timeoutMs, username, password),
     earlyExit.catch(() => false as const),
   ]);
 
@@ -257,7 +259,7 @@ export async function startServer(
   }
 
   // Grab the version from the now-running server.
-  const status = await isServerRunning(baseUrl);
+  const status = await isServerRunning(baseUrl, username, password);
   return { version: status.version };
 }
 
@@ -321,7 +323,13 @@ export async function ensureServer(
 
   // Step 3: Start the server.
   console.error(`Starting: opencode serve --port ${parseBaseUrl(baseUrl).port}`);
-  const result = await startServer(binaryPath, baseUrl, timeoutMs);
+  const result = await startServer(
+    binaryPath,
+    baseUrl,
+    timeoutMs,
+    opts.username,
+    opts.password,
+  );
   console.error(
     `OpenCode server started successfully (v${result.version ?? "unknown"})`,
   );
