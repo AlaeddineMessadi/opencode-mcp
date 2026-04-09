@@ -62,6 +62,10 @@ const defaultModel = process.env.OPENCODE_DEFAULT_MODEL;
 // Set global model defaults from env vars (used by applyModelDefaults() in tools)
 setModelDefaults(defaultProvider, defaultModel);
 
+// Use env-var defaults in instruction examples; fall back to generic placeholders
+const exProvider = defaultProvider || "<your-provider>";
+const exModel = defaultModel || "<your-model>";
+
 const client = new OpenCodeClient({ baseUrl, username, password, autoServe });
 
 const server = new McpServer(
@@ -82,8 +86,8 @@ const server = new McpServer(
       "",
       "## Getting Started (First Time)",
       "1. Call `opencode_setup` — checks server health, shows configured providers, and suggests next steps.",
-      "2. Call `opencode_provider_models({providerId: 'anthropic'})` — lists available models for a provider.",
-      "3. Pick a provider and model. IMPORTANT: Always pass `providerID` and `modelID` when sending prompts, or you may get empty responses.",
+      "2. Pick a provider from the **Ready to use** list returned by `opencode_setup`, then call `opencode_provider_models` to see its models.",
+      "3. IMPORTANT: Always pass `providerID` and `modelID` from the discovered providers when sending prompts, or you may get empty responses. Do NOT assume any specific provider is available — always discover first.",
       "",
       "## Tool Tiers (prefer higher tiers)",
       "",
@@ -124,16 +128,16 @@ const server = new McpServer(
       "",
       "### Quick question or small task:",
       "```",
-      'opencode_ask({prompt: "How does auth work in this project?", providerID: "anthropic", modelID: "claude-sonnet-4-5"})',
+      `opencode_ask({prompt: "How does auth work in this project?", providerID: "${exProvider}", modelID: "${exModel}"})`,
       "```",
       "",
       "### Complex multi-step task (build an app, refactor code, etc.):",
       "```",
       "// Option A: One-call (recommended for tasks under 10 min)",
-      'opencode_run({prompt: "Build a React login form with validation...", providerID: "anthropic", modelID: "claude-opus-4-6", maxDurationSeconds: 600})',
+      `opencode_run({prompt: "Build a React login form with validation...", providerID: "${exProvider}", modelID: "${exModel}", maxDurationSeconds: 600})`,
       "",
       "// Option B: Fire-and-forget (for longer tasks)",
-      'opencode_fire({prompt: "Build a full React app with auth, dashboard...", providerID: "anthropic", modelID: "claude-opus-4-6"})',
+      `opencode_fire({prompt: "Build a full React app with auth, dashboard...", providerID: "${exProvider}", modelID: "${exModel}"})`,
       "// ... do other work ...",
       'opencode_check({sessionId: "ses_xxx"})  // quick progress check',
       'opencode_review_changes({sessionId: "ses_xxx"})  // see changes after completion',
@@ -141,7 +145,7 @@ const server = new McpServer(
       "",
       "### Continue working on an existing session:",
       "```",
-      'opencode_reply({sessionId: "ses_xxx", prompt: "Now add form validation", providerID: "anthropic", modelID: "claude-sonnet-4-5"})',
+      `opencode_reply({sessionId: "ses_xxx", prompt: "Now add form validation", providerID: "${exProvider}", modelID: "${exModel}"})`,
       "```",
       "",
       "## Permissions",
@@ -151,7 +155,7 @@ const server = new McpServer(
       "- You can also set permissions at runtime: `opencode_config_update({config: {permission: \"allow\"}})`",
       "",
       "## Important Notes",
-      "- ALWAYS specify `providerID` and `modelID` when using `opencode_ask`, `opencode_reply`, `opencode_message_send`, or `opencode_message_send_async`. Without these, the agent may return empty responses. If OPENCODE_DEFAULT_PROVIDER and OPENCODE_DEFAULT_MODEL env vars are set, they will be used as fallbacks when you don't specify them.",
+      "- ALWAYS specify `providerID` and `modelID` when using `opencode_ask`, `opencode_reply`, `opencode_message_send`, or `opencode_message_send_async`. Without these, the agent may return empty responses. Use providers and models discovered via `opencode_setup` — do NOT hardcode any specific provider. If `OPENCODE_DEFAULT_PROVIDER` and `OPENCODE_DEFAULT_MODEL` env vars are set, they will be used as fallbacks when you don't specify them.",
       "- The `directory` parameter on every tool targets a specific project. Omit it to use the server's default project. Must be an absolute path to an existing directory — relative paths and non-existent paths are rejected with a helpful error.",
       "- Tools marked with `readOnlyHint: true` in their annotations are safe and don't modify state.",
       "- Tools marked with `destructiveHint: true` (`opencode_instance_dispose`, `opencode_session_delete`) permanently delete data — confirm with the user before calling.",

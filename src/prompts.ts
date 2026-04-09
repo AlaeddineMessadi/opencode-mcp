@@ -158,13 +158,13 @@ Steps:
 
 ## 1. First-Time Setup
 - Always start with \`opencode_setup\` to check server health and see available providers.
-- Use \`opencode_provider_models({providerId: "anthropic"})\` to see which models are available.
-- Test a provider with \`opencode_provider_test({providerId: "anthropic"})\` if you're unsure it's working.
+- Pick a provider from the **Ready to use** list, then call \`opencode_provider_models\` to see its models.
+- Test a provider with \`opencode_provider_test\` if you're unsure it's working.
 
 ## 2. Always Specify Provider and Model
-CRITICAL: When calling \`opencode_ask\`, \`opencode_reply\`, \`opencode_message_send\`, or \`opencode_message_send_async\`, ALWAYS pass \`providerID\` and \`modelID\`. Without these, the agent may select a default model that returns empty responses.
+CRITICAL: When calling \`opencode_ask\`, \`opencode_reply\`, \`opencode_message_send\`, or \`opencode_message_send_async\`, ALWAYS pass \`providerID\` and \`modelID\`. Without these, the agent may select a default model that returns empty responses. Use providers discovered via \`opencode_setup\` — do NOT hardcode any specific provider.
 
-Good: \`opencode_ask({prompt: "...", providerID: "anthropic", modelID: "claude-sonnet-4-5"})\`
+Good: \`opencode_ask({prompt: "...", providerID: "<your-provider>", modelID: "<your-model>"})\`
 Bad: \`opencode_ask({prompt: "..."})\`
 
 ## 3. Choosing the Right Tool
