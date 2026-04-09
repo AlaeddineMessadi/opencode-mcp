@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.1] - 2026-04-10
+
+### Changed
+
+- Instruction examples now use discovered/default provider and model values instead of hardcoded Anthropic examples. This avoids steering MCP clients toward unavailable providers and aligns the startup guidance with `opencode_setup`.
+
+### Fixed
+
+- Health checks for authenticated OpenCode servers now propagate HTTP basic auth through the full auto-start path, including startup polling and reconnection flows.
+- `ensureServer()` now forwards configured server credentials during startup so remote protected servers no longer fail the health probe while coming online.
+
+### Stats
+
+- Tool count: 79
+- Tests: 320
+
 ## [1.10.0] - 2026-02-10
 
 ### Added

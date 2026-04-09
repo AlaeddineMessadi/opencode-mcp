@@ -173,7 +173,7 @@ npm install
 npm run build
 npm start        # run the MCP server
 npm run dev      # watch mode
-npm test         # 316 tests
+npm test         # 320 tests
 ```
 
 ### Smoke Testing

@@ -5,3 +5,5 @@ dist/
 .env
 .env.*
 projects/
+.axon/
+.opencode/
