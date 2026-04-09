@@ -76,10 +76,14 @@ export class OpenCodeClient {
   private authHeader?: string;
   private autoServe: boolean;
   private reconnectAttempts = 0;
+  private username?: string;
+  private password?: string;
 
   constructor(options: OpenCodeClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
     this.autoServe = options.autoServe ?? false;
+    this.username = options.username;
+    this.password = options.password;
     if (options.password) {
       const username = options.username ?? "opencode";
       this.authHeader =
@@ -202,9 +206,14 @@ export class OpenCodeClient {
         `Connection failed (attempt ${this.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}), attempting server reconnection...`,
       );
       try {
-        const status = await isServerRunning(this.baseUrl);
+        const status = await isServerRunning(this.baseUrl, this.username, this.password);
         if (!status.healthy) {
-          await ensureServer({ baseUrl: this.baseUrl, autoServe: true });
+          await ensureServer({ 
+            baseUrl: this.baseUrl, 
+            autoServe: true,
+            username: this.username,
+            password: this.password
+          });
         }
         // Retry the original request once after reconnection
         return this.request<T>(method, path, opts);

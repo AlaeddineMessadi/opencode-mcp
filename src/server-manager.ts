@@ -23,6 +23,10 @@ export interface ServerManagerOptions {
   autoServe?: boolean;
   /** Max time (ms) to wait for the server to become healthy after spawning. */
   startupTimeoutMs?: number;
+  /** Username for HTTP basic auth (optional) */
+  username?: string;
+  /** Password for HTTP basic auth (optional) */
+  password?: string;
 }
 
 export interface ServerStatus {
@@ -44,13 +48,23 @@ let shutdownRegistered = false;
  */
 export async function isServerRunning(
   baseUrl: string,
+  username?: string,
+  password?: string,
 ): Promise<{ healthy: boolean; version?: string }> {
   try {
     const url = `${baseUrl.replace(/\/$/, "")}/global/health`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3_000);
+    
+    const headers: Record<string, string> = {};
+    if (password) {
+      const user = username ?? "opencode";
+      headers["Authorization"] = "Basic " + Buffer.from(`${user}:${password}`).toString("base64");
+    }
+    
     const res = await fetch(url, {
       method: "GET",
+      headers,
       signal: controller.signal,
     });
     clearTimeout(timeout);
@@ -132,10 +146,12 @@ function parseBaseUrl(baseUrl: string): { hostname: string; port: number } {
 async function waitForHealthy(
   baseUrl: string,
   timeoutMs: number,
+  username?: string,
+  password?: string,
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const { healthy } = await isServerRunning(baseUrl);
+    const { healthy } = await isServerRunning(baseUrl, username, password);
     if (healthy) return true;
     await new Promise((r) => setTimeout(r, HEALTH_POLL_INTERVAL_MS));
   }
@@ -178,6 +194,8 @@ export async function startServer(
   binaryPath: string,
   baseUrl: string,
   timeoutMs: number = DEFAULT_STARTUP_TIMEOUT_MS,
+  username?: string,
+  password?: string,
 ): Promise<{ version?: string }> {
   const { hostname, port } = parseBaseUrl(baseUrl);
 
@@ -226,7 +244,7 @@ export async function startServer(
 
   // Race: either the server becomes healthy or the child crashes.
   const healthy = await Promise.race([
-    waitForHealthy(baseUrl, timeoutMs),
+    waitForHealthy(baseUrl, timeoutMs, username, password),
     earlyExit.catch(() => false as const),
   ]);
 
@@ -241,7 +259,7 @@ export async function startServer(
   }
 
   // Grab the version from the now-running server.
-  const status = await isServerRunning(baseUrl);
+  const status = await isServerRunning(baseUrl, username, password);
   return { version: status.version };
 }
 
@@ -271,7 +289,7 @@ export async function ensureServer(
   const timeoutMs = opts.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
 
   // Step 1: Check if server is already running.
-  const existing = await isServerRunning(baseUrl);
+  const existing = await isServerRunning(baseUrl, opts.username, opts.password);
   if (existing.healthy) {
     console.error(
       `OpenCode server already running at ${baseUrl} (v${existing.version ?? "unknown"})`,
@@ -305,7 +323,13 @@ export async function ensureServer(
 
   // Step 3: Start the server.
   console.error(`Starting: opencode serve --port ${parseBaseUrl(baseUrl).port}`);
-  const result = await startServer(binaryPath, baseUrl, timeoutMs);
+  const result = await startServer(
+    binaryPath,
+    baseUrl,
+    timeoutMs,
+    opts.username,
+    opts.password,
+  );
   console.error(
     `OpenCode server started successfully (v${result.version ?? "unknown"})`,
   );
