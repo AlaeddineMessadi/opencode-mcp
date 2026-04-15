@@ -8,7 +8,7 @@
 
 import { z } from "zod";
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -81,9 +81,14 @@ export function applyModelDefaults(
 
 /**
  * Normalize and validate a directory path:
- *  - Resolves to absolute (handles "..", trailing slashes, etc.)
- *  - Rejects relative paths (must start with /)
+ *  - Resolves to absolute (handles "..", ".", trailing slashes, and
+ *    converts relative inputs against `process.cwd()`)
+ *  - Confirms the resolved path is absolute for the current platform
  *  - Validates that the path exists on disk
+ *
+ * Accepts both POSIX ("/home/user/my-project") and Windows
+ * ("C:\\Users\\me\\my-project", "\\\\server\\share") absolute paths via
+ * the platform-aware `resolve` + `isAbsolute` from `node:path`.
  *
  * Returns the normalized path, or undefined if input was undefined.
  * Throws a descriptive Error on validation failure.
@@ -91,14 +96,19 @@ export function applyModelDefaults(
 export function normalizeDirectory(directory?: string): string | undefined {
   if (!directory) return undefined;
 
-  // Resolve to absolute (handles "..", ".", trailing slashes)
+  // Resolve to an absolute, platform-appropriate form. `resolve` handles
+  // "..", ".", trailing slashes, and will convert a relative input against
+  // `process.cwd()`.
   const normalized = resolve(directory);
 
-  // Must be an absolute path
-  if (!normalized.startsWith("/")) {
+  // Defensive check: `resolve` guarantees an absolute path on every
+  // supported platform, but we verify via the platform-aware `isAbsolute`
+  // so callers get a clear error if that assumption is ever violated.
+  if (!isAbsolute(normalized)) {
     throw new Error(
       `Invalid directory: "${directory}" is not an absolute path. ` +
-        `Provide a full path like "/home/user/my-project".`,
+        `Provide a full path like "/home/user/my-project" (POSIX) or ` +
+        `"C:\\\\Users\\\\me\\\\my-project" (Windows).`,
     );
   }
 

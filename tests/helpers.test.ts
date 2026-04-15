@@ -927,6 +927,29 @@ describe("normalizeDirectory", () => {
     const result = normalizeDirectory("/tmp");
     expect(result).toBe("/tmp");
   });
+
+  it("accepts the process working directory on any platform", () => {
+    // Platform-agnostic regression: process.cwd() is always absolute for the
+    // current platform, so normalizeDirectory must accept it regardless of OS.
+    const result = normalizeDirectory(process.cwd());
+    expect(result).toBeDefined();
+  });
+
+  // Regression for Windows drive-letter paths.
+  // Before the fix, normalizeDirectory required the resolved path to start
+  // with "/", which meant Windows absolute paths like "C:\\Users\\..." were
+  // rejected. The fix switches to the platform-aware `path.isAbsolute`, so
+  // this test guards the Windows path on a Windows CI runner.
+  it.runIf(process.platform === "win32")(
+    "accepts Windows drive-letter absolute paths",
+    () => {
+      const cwd = process.cwd(); // e.g. "C:\\Users\\runner\\work\\..."
+      expect(cwd).toMatch(/^[A-Za-z]:\\/);
+      const result = normalizeDirectory(cwd);
+      expect(result).toBeDefined();
+      expect(result).toMatch(/^[A-Za-z]:\\/);
+    },
+  );
 });
 
 // ─── diagnoseError (via toolError) ───────────────────────────────────────
