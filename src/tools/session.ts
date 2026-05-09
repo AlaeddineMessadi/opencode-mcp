@@ -219,11 +219,12 @@ export function registerSessionTools(
       messageID: z.string().describe("Message ID"),
       providerID: z.string().describe("Provider ID (e.g. 'anthropic')"),
       modelID: z.string().describe("Model ID (e.g. 'claude-3-5-sonnet-20241022')"),
+      variant: z.string().optional().describe("Model variant (e.g. 'fast', 'smart')"),
       directory: directoryParam,
     },
-    async ({ id, messageID, providerID, modelID, directory }) => {
+    async ({ id, messageID, providerID, modelID, variant, directory }) => {
       try {
-        await client.post(`/session/${id}/init`, { messageID, providerID, modelID }, { directory });
+        await client.post(`/session/${id}/init`, { messageID, providerID, modelID, variant }, { directory });
         return toolResult("AGENTS.md initialization started.");
       } catch (e) {
         return toolError(e);
@@ -333,11 +334,12 @@ export function registerSessionTools(
       id: z.string().describe("Session ID"),
       providerID: z.string().describe("Provider ID (e.g. 'anthropic')"),
       modelID: z.string().describe("Model ID (e.g. 'claude-3-5-sonnet-20241022')"),
+      variant: z.string().optional().describe("Model variant (e.g. 'fast', 'smart')"),
       directory: directoryParam,
     },
-    async ({ id, providerID, modelID, directory }) => {
+    async ({ id, providerID, modelID, variant, directory }) => {
       try {
-        await client.post(`/session/${id}/summarize`, { providerID, modelID }, { directory });
+        await client.post(`/session/${id}/summarize`, { providerID, modelID, variant }, { directory });
         return toolResult("Session summarization started.");
       } catch (e) {
         return toolError(e);

@@ -78,6 +78,7 @@ export function registerMessageTools(
         .string()
         .optional()
         .describe("Model ID (e.g. 'claude-3-5-sonnet-20241022')"),
+      variant: z.string().optional().describe("Model variant (e.g. 'fast', 'smart')"),
       agent: z.string().optional().describe("Agent to use"),
       noReply: z
         .boolean()
@@ -93,6 +94,7 @@ export function registerMessageTools(
       text,
       providerID,
       modelID,
+      variant,
       agent,
       noReply,
       system,
@@ -102,7 +104,7 @@ export function registerMessageTools(
         const body: Record<string, unknown> = {
           parts: [{ type: "text", text }],
         };
-        const model = applyModelDefaults(providerID, modelID);
+        const model = applyModelDefaults(providerID, modelID, variant);
         if (model) body.model = model;
         if (agent) body.agent = agent;
         if (noReply !== undefined) body.noReply = noReply;
@@ -144,15 +146,16 @@ export function registerMessageTools(
         .string()
         .optional()
         .describe("Model ID (e.g. 'claude-3-5-sonnet-20241022')"),
+      variant: z.string().optional().describe("Model variant (e.g. 'fast', 'smart')"),
       agent: z.string().optional().describe("Agent to use"),
       directory: directoryParam,
     },
-    async ({ sessionId, text, providerID, modelID, agent, directory }) => {
+    async ({ sessionId, text, providerID, modelID, variant, agent, directory }) => {
       try {
         const body: Record<string, unknown> = {
           parts: [{ type: "text", text }],
         };
-        const model = applyModelDefaults(providerID, modelID);
+        const model = applyModelDefaults(providerID, modelID, variant);
         if (model) body.model = model;
         if (agent) body.agent = agent;
         await client.post(`/session/${sessionId}/prompt_async`, body, { directory });
@@ -180,6 +183,7 @@ export function registerMessageTools(
       agent: z.string().optional().describe("Agent to use"),
       providerID: z.string().optional().describe("Provider ID"),
       modelID: z.string().optional().describe("Model ID"),
+      variant: z.string().optional().describe("Model variant"),
       directory: directoryParam,
     },
     async ({
@@ -189,6 +193,7 @@ export function registerMessageTools(
       agent,
       providerID,
       modelID,
+      variant,
       directory,
     }) => {
       try {
@@ -197,7 +202,7 @@ export function registerMessageTools(
           arguments: args ?? "",
         };
         if (agent) body.agent = agent;
-        const cmdModel = applyModelDefaults(providerID, modelID);
+        const cmdModel = applyModelDefaults(providerID, modelID, variant);
         if (cmdModel) body.model = cmdModel;
         const result = await client.post(
           `/session/${sessionId}/command`,
@@ -220,12 +225,13 @@ export function registerMessageTools(
       agent: z.string().describe("Agent to use for the shell command"),
       providerID: z.string().optional().describe("Provider ID"),
       modelID: z.string().optional().describe("Model ID"),
+      variant: z.string().optional().describe("Model variant"),
       directory: directoryParam,
     },
-    async ({ sessionId, command, agent, providerID, modelID, directory }) => {
+    async ({ sessionId, command, agent, providerID, modelID, variant, directory }) => {
       try {
         const body: Record<string, unknown> = { command, agent };
-        const shellModel = applyModelDefaults(providerID, modelID);
+        const shellModel = applyModelDefaults(providerID, modelID, variant);
         if (shellModel) body.model = shellModel;
         const result = await client.post(
           `/session/${sessionId}/shell`,

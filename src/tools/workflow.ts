@@ -238,6 +238,7 @@ export function registerWorkflowTools(
         .string()
         .optional()
         .describe("Model ID (e.g. 'claude-3-5-sonnet-20241022')"),
+      variant: z.string().optional().describe("Model variant (e.g. 'fast', 'smart')"),
       agent: z
         .string()
         .optional()
@@ -248,7 +249,7 @@ export function registerWorkflowTools(
         .describe("Optional system prompt override"),
       directory: directoryParam,
     },
-    async ({ prompt, title, providerID, modelID, agent, system, directory }) => {
+    async ({ prompt, title, providerID, modelID, variant, agent, system, directory }) => {
       try {
         // 1. Create session
         const session = (await client.post("/session", {
@@ -260,7 +261,7 @@ export function registerWorkflowTools(
         const body: Record<string, unknown> = {
           parts: [{ type: "text", text: prompt }],
         };
-        const model = applyModelDefaults(providerID, modelID);
+        const model = applyModelDefaults(providerID, modelID, variant);
         if (model) body.model = model;
         if (agent) body.agent = agent;
         if (system) body.system = system;
@@ -298,15 +299,16 @@ export function registerWorkflowTools(
       prompt: z.string().describe("The follow-up message"),
       providerID: z.string().optional().describe("Provider ID"),
       modelID: z.string().optional().describe("Model ID"),
+      variant: z.string().optional().describe("Model variant"),
       agent: z.string().optional().describe("Agent to use"),
       directory: directoryParam,
     },
-    async ({ sessionId, prompt, providerID, modelID, agent, directory }) => {
+    async ({ sessionId, prompt, providerID, modelID, variant, agent, directory }) => {
       try {
         const body: Record<string, unknown> = {
           parts: [{ type: "text", text: prompt }],
         };
-        const model = applyModelDefaults(providerID, modelID);
+        const model = applyModelDefaults(providerID, modelID, variant);
         if (model) body.model = model;
         if (agent) body.agent = agent;
 
@@ -587,9 +589,10 @@ export function registerWorkflowTools(
     {
       providerId: z.string().describe("Provider ID to test (e.g. 'anthropic', 'openrouter')"),
       modelID: z.string().optional().describe("Specific model ID to test. If omitted, uses provider default."),
+      variant: z.string().optional().describe("Model variant"),
       directory: directoryParam,
     },
-    async ({ providerId, modelID, directory }) => {
+    async ({ providerId, modelID, variant, directory }) => {
       let sessionId: string | null = null;
       try {
         // 1. Create a temporary test session
@@ -604,7 +607,7 @@ export function registerWorkflowTools(
         };
         // Use the specified model, or let the provider pick its default
         if (modelID) {
-          body.model = { providerID: providerId, modelID };
+          body.model = { providerID: providerId, modelID, ...(variant ? { variant } : {}) };
         } else {
           body.providerID = providerId;
         }
@@ -661,6 +664,7 @@ export function registerWorkflowTools(
       title: z.string().optional().describe("Session title (only for new sessions)"),
       providerID: z.string().optional().describe("Provider ID (e.g. 'anthropic')"),
       modelID: z.string().optional().describe("Model ID (e.g. 'claude-opus-4-6')"),
+      variant: z.string().optional().describe("Model variant"),
       agent: z.string().optional().describe("Agent to use"),
       maxDurationSeconds: z
         .number()
@@ -668,7 +672,7 @@ export function registerWorkflowTools(
         .describe("Max seconds to wait for completion (default: 600 = 10 minutes)"),
       directory: directoryParam,
     },
-    async ({ prompt, sessionId, title, providerID, modelID, agent, maxDurationSeconds, directory }) => {
+    async ({ prompt, sessionId, title, providerID, modelID, variant, agent, maxDurationSeconds, directory }) => {
       try {
         // 1. Create or reuse session
         let sid = sessionId;
@@ -684,7 +688,7 @@ export function registerWorkflowTools(
           parts: [{ type: "text", text: prompt }],
           noReply: false,
         };
-        const model = applyModelDefaults(providerID, modelID);
+        const model = applyModelDefaults(providerID, modelID, variant);
         if (model) body.model = model;
         if (agent) body.agent = agent;
 
@@ -778,10 +782,11 @@ export function registerWorkflowTools(
       title: z.string().optional().describe("Session title (only for new sessions)"),
       providerID: z.string().optional().describe("Provider ID (e.g. 'anthropic')"),
       modelID: z.string().optional().describe("Model ID (e.g. 'claude-opus-4-6')"),
+      variant: z.string().optional().describe("Model variant"),
       agent: z.string().optional().describe("Agent to use"),
       directory: directoryParam,
     },
-    async ({ prompt, sessionId, title, providerID, modelID, agent, directory }) => {
+    async ({ prompt, sessionId, title, providerID, modelID, variant, agent, directory }) => {
       try {
         // 1. Create or reuse session
         let sid = sessionId;
@@ -797,7 +802,7 @@ export function registerWorkflowTools(
           parts: [{ type: "text", text: prompt }],
           noReply: false,
         };
-        const model = applyModelDefaults(providerID, modelID);
+        const model = applyModelDefaults(providerID, modelID, variant);
         if (model) body.model = model;
         if (agent) body.agent = agent;
 
