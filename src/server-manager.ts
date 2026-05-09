@@ -204,6 +204,14 @@ export async function startServer(
     args.push("--hostname", hostname);
   }
 
+  // Allow passing custom parameters to `opencode serve`
+  if (process.env.OPENCODE_SERVE_ARGS) {
+    const extraArgs = process.env.OPENCODE_SERVE_ARGS.match(/[^\s"']+|"([^"]*)"|'([^']*)'/g) || [];
+    for (const arg of extraArgs) {
+      args.push(arg.replace(/^['"]|['"]$/g, ""));
+    }
+  }
+
   const child = spawn(binaryPath, args, {
     stdio: ["ignore", "pipe", "pipe"],
     detached: false,
