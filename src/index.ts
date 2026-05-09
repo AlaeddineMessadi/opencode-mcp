@@ -26,6 +26,7 @@
  *   OPENCODE_AUTO_SERVE       - Set to "false" to disable auto-start (default: true)
  *   OPENCODE_DEFAULT_PROVIDER - Default provider ID when not specified per-tool (optional)
  *   OPENCODE_DEFAULT_MODEL    - Default model ID when not specified per-tool (optional)
+ *   OPENCODE_SERVE_ARGS       - Extra arguments for the `opencode serve` auto-start (optional)
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
