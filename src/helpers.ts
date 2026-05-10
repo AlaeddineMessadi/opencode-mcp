@@ -91,16 +91,37 @@ export function applyModelDefaults(
  * ("C:\\Users\\me\\my-project", "\\\\server\\share") absolute paths via
  * the platform-aware `resolve` + `isAbsolute` from `node:path`.
  *
+ * On Windows, also accepts the Git Bash / MSYS-translated form
+ * ("/c/Users/me/my-project") by rewriting it to "C:/Users/me/my-project"
+ * before resolving. This is the form Git Bash hands to native programs
+ * when shell-translating Windows-rooted paths.
+ *
  * Returns the normalized path, or undefined if input was undefined.
  * Throws a descriptive Error on validation failure.
  */
 export function normalizeDirectory(directory?: string): string | undefined {
   if (!directory) return undefined;
 
+  // On Windows, accept the Git Bash / MSYS form "/<letter>/..." by
+  // rewriting it to a native drive-letter path before resolving. Without
+  // this, `resolve("/c/Users/...")` would produce "C:\\c\\Users\\..."
+  // (relative to the current drive root), which then fails the existence
+  // check. The match is intentionally conservative: single ASCII letter,
+  // immediately followed by "/" or end-of-string, anchored at start.
+  let input = directory;
+  if (process.platform === "win32") {
+    const msysMatch = input.match(/^\/([A-Za-z])(\/.*)?$/);
+    if (msysMatch) {
+      const drive = msysMatch[1].toUpperCase();
+      const rest = msysMatch[2] ?? "/";
+      input = `${drive}:${rest}`;
+    }
+  }
+
   // Resolve to an absolute, platform-appropriate form. `resolve` handles
   // "..", ".", trailing slashes, and will convert a relative input against
   // `process.cwd()`.
-  const normalized = resolve(directory);
+  const normalized = resolve(input);
 
   // Defensive check: `resolve` guarantees an absolute path on every
   // supported platform, but we verify via the platform-aware `isAbsolute`

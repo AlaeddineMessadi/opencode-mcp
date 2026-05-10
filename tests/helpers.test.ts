@@ -950,6 +950,27 @@ describe("normalizeDirectory", () => {
       expect(result).toMatch(/^[A-Za-z]:\\/);
     },
   );
+
+  // Regression for Git Bash / MSYS path translation.
+  // When invoked from Git Bash on Windows, MCP clients may forward
+  // directories in the MSYS form "/c/Users/me/project". `path.resolve`
+  // would otherwise read this relative to the current drive root and
+  // produce "C:\\c\\Users\\..." which doesn't exist. The fork rewrites
+  // the leading "/<letter>/" to "<letter>:/" before resolving.
+  it.runIf(process.platform === "win32")(
+    "accepts Git Bash MSYS-style /<drive>/... paths",
+    () => {
+      const cwd = process.cwd(); // e.g. "C:\\Users\\runner\\..."
+      const m = cwd.match(/^([A-Za-z]):\\(.*)$/);
+      expect(m).not.toBeNull();
+      const [, drive, rest] = m!;
+      const msys = `/${drive.toLowerCase()}/${rest.replace(/\\/g, "/")}`;
+      const result = normalizeDirectory(msys);
+      expect(result).toBeDefined();
+      // Should normalize to the native drive-letter form.
+      expect(result!.toLowerCase()).toBe(cwd.toLowerCase());
+    },
+  );
 });
 
 // ─── diagnoseError (via toolError) ───────────────────────────────────────
