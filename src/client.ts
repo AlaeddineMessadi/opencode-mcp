@@ -1,16 +1,4 @@
-/**
- * HTTP client wrapper for the OpenCode server API.
- *
- * Features:
- *  - Basic auth support
- *  - Automatic retry with exponential backoff for transient errors
- *  - Proper 204 No Content handling on all methods
- *  - SSE streaming support
- *  - Error categorization (transient vs permanent)
- *  - Directory path normalization and validation
- *  - Lazy server reconnection on connection failure
- */
-
+import { createOpencodeClient, OpencodeClient as NativeClient } from "@opencode-ai/sdk";
 import { normalizeDirectory } from "./helpers.js";
 import { ensureServer, isServerRunning } from "./server-manager.js";
 
@@ -18,7 +6,6 @@ export interface OpenCodeClientOptions {
   baseUrl: string;
   username?: string;
   password?: string;
-  /** Enable lazy server reconnection when connection fails. */
   autoServe?: boolean;
 }
 
@@ -54,13 +41,10 @@ export class OpenCodeError extends Error {
 
 const MAX_RETRIES = 2;
 const BASE_DELAY_MS = 500;
-
-/** Max reconnection attempts per MCP session lifetime. */
 const MAX_RECONNECT_ATTEMPTS = 3;
 
-/** Check if an error looks like a connection failure (server unreachable). */
 function isConnectionError(err: Error): boolean {
-  const msg = err.message.toLowerCase();
+  const msg = err.message?.toLowerCase() || "";
   return (
     msg.includes("econnrefused") ||
     msg.includes("enotfound") ||
@@ -72,8 +56,8 @@ function isConnectionError(err: Error): boolean {
 }
 
 export class OpenCodeClient {
+  public api: NativeClient;
   private baseUrl: string;
-  private authHeader?: string;
   private autoServe: boolean;
   private reconnectAttempts = 0;
   private username?: string;
@@ -84,44 +68,21 @@ export class OpenCodeClient {
     this.autoServe = options.autoServe ?? false;
     this.username = options.username;
     this.password = options.password;
+
+    const headers: Record<string, string> = {};
     if (options.password) {
       const username = options.username ?? "opencode";
-      this.authHeader =
-        "Basic " +
-        Buffer.from(`${username}:${options.password}`).toString("base64");
+      headers["Authorization"] = "Basic " + Buffer.from(`${username}:${options.password}`).toString("base64");
     }
+
+    this.api = createOpencodeClient({
+      baseUrl: this.baseUrl,
+      headers
+    });
   }
 
   getBaseUrl(): string {
     return this.baseUrl;
-  }
-
-  private buildUrl(path: string, query?: Record<string, string>): string {
-    const url = new URL(path, this.baseUrl);
-    if (query) {
-      for (const [key, value] of Object.entries(query)) {
-        if (value !== undefined && value !== "") {
-          url.searchParams.set(key, value);
-        }
-      }
-    }
-    return url.toString();
-  }
-
-  private headers(accept?: string, directory?: string): Record<string, string> {
-    const h: Record<string, string> = {
-      "Content-Type": "application/json",
-      Accept: accept ?? "application/json",
-    };
-    if (this.authHeader) {
-      h["Authorization"] = this.authHeader;
-    }
-    // Normalize and validate the directory path before sending as header
-    const normalized = normalizeDirectory(directory);
-    if (normalized) {
-      h["x-opencode-directory"] = normalized;
-    }
-    return h;
   }
 
   private async request<T = unknown>(
@@ -134,7 +95,6 @@ export class OpenCodeClient {
       directory?: string;
     },
   ): Promise<T> {
-    const url = this.buildUrl(path, opts?.query);
     let lastError: Error | undefined;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -144,30 +104,38 @@ export class OpenCodeClient {
       }
 
       try {
-        const controller = new AbortController();
-        const timeoutId = opts?.timeout
-          ? setTimeout(() => controller.abort(), opts.timeout)
-          : undefined;
+        const headers: Record<string, string> = {};
+        const normalized = normalizeDirectory(opts?.directory);
+        if (normalized) {
+          headers["x-opencode-directory"] = encodeURIComponent(normalized);
+        }
 
-        const res = await fetch(url, {
-          method,
-          headers: this.headers(undefined, opts?.directory),
-          body:
-            opts?.body !== undefined ? JSON.stringify(opts.body) : undefined,
-          signal: controller.signal,
-        });
+        const apiClient = (this.api as any)._client;
+        let res;
+        switch (method.toUpperCase()) {
+          case 'GET':
+            res = await apiClient.get({ url: path, query: opts?.query, headers });
+            break;
+          case 'POST':
+            res = await apiClient.post({ url: path, query: opts?.query, body: opts?.body as any, headers });
+            break;
+          case 'PATCH':
+            res = await apiClient.patch({ url: path, query: opts?.query, body: opts?.body as any, headers });
+            break;
+          case 'PUT':
+            res = await apiClient.put({ url: path, query: opts?.query, body: opts?.body as any, headers });
+            break;
+          case 'DELETE':
+            res = await apiClient.delete({ url: path, query: opts?.query, headers });
+            break;
+          default:
+            throw new Error(`Unsupported method ${method}`);
+        }
 
-        if (timeoutId) clearTimeout(timeoutId);
-
-        if (!res.ok) {
-          const text = await res.text();
-          const err = new OpenCodeError(
-            `${method} ${path} failed (${res.status}): ${text}`,
-            res.status,
-            method,
-            path,
-            text,
-          );
+        if (res.error) {
+          const status = res.response?.status || 500;
+          const bodyStr = typeof res.error === 'string' ? res.error : JSON.stringify(res.error);
+          const err = new OpenCodeError(`${method} ${path} failed (${status}): ${bodyStr}`, status, method, path, bodyStr);
           if (err.isTransient && attempt < MAX_RETRIES) {
             lastError = err;
             continue;
@@ -175,17 +143,7 @@ export class OpenCodeClient {
           throw err;
         }
 
-        // Handle 204 No Content
-        if (res.status === 204) {
-          return undefined as T;
-        }
-
-        const contentType = res.headers.get("content-type") ?? "";
-        if (contentType.includes("application/json")) {
-          return (await res.json()) as T;
-        }
-        // Return text for non-JSON responses
-        return (await res.text()) as unknown as T;
+        return res.data as T;
       } catch (e) {
         if (e instanceof OpenCodeError) throw e;
         lastError = e as Error;
@@ -193,8 +151,6 @@ export class OpenCodeClient {
       }
     }
 
-    // Lazy reconnection: if all retries exhausted and error looks like a
-    // connection failure, try restarting the server and retry once.
     if (
       this.autoServe &&
       this.reconnectAttempts < MAX_RECONNECT_ATTEMPTS &&
@@ -206,7 +162,7 @@ export class OpenCodeClient {
         `Connection failed (attempt ${this.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}), attempting server reconnection...`,
       );
       try {
-        const status = await isServerRunning(this.baseUrl, this.username, this.password);
+        const status = await isServerRunning(this.baseUrl);
         if (!status.healthy) {
           await ensureServer({ 
             baseUrl: this.baseUrl, 
@@ -215,95 +171,58 @@ export class OpenCodeClient {
             password: this.password
           });
         }
-        // Retry the original request once after reconnection
         return this.request<T>(method, path, opts);
       } catch (reconnectErr) {
-        console.error(
-          `Server reconnection failed: ${reconnectErr instanceof Error ? reconnectErr.message : String(reconnectErr)}`,
-        );
+        console.error(`Server reconnection failed: ${reconnectErr instanceof Error ? reconnectErr.message : String(reconnectErr)}`);
       }
     }
 
     throw lastError ?? new Error(`${method} ${path} failed after retries`);
   }
 
-  async get<T = unknown>(
-    path: string,
-    query?: Record<string, string>,
-    directory?: string,
-  ): Promise<T> {
+  async get<T = unknown>(path: string, query?: Record<string, string>, directory?: string): Promise<T> {
     return this.request<T>("GET", path, { query, directory });
   }
 
-  async post<T = unknown>(
-    path: string,
-    body?: unknown,
-    opts?: { timeout?: number; directory?: string },
-  ): Promise<T> {
-    return this.request<T>("POST", path, {
-      body,
-      timeout: opts?.timeout,
-      directory: opts?.directory,
-    });
+  async post<T = unknown>(path: string, body?: unknown, opts?: { timeout?: number; directory?: string }): Promise<T> {
+    return this.request<T>("POST", path, { body, timeout: opts?.timeout, directory: opts?.directory });
   }
 
-  async patch<T = unknown>(
-    path: string,
-    body?: unknown,
-    directory?: string,
-  ): Promise<T> {
+  async patch<T = unknown>(path: string, body?: unknown, directory?: string): Promise<T> {
     return this.request<T>("PATCH", path, { body, directory });
   }
 
-  async put<T = unknown>(
-    path: string,
-    body?: unknown,
-    directory?: string,
-  ): Promise<T> {
+  async put<T = unknown>(path: string, body?: unknown, directory?: string): Promise<T> {
     return this.request<T>("PUT", path, { body, directory });
   }
 
-  async delete<T = unknown>(
-    path: string,
-    query?: Record<string, string>,
-    directory?: string,
-  ): Promise<T> {
+  async delete<T = unknown>(path: string, query?: Record<string, string>, directory?: string): Promise<T> {
     return this.request<T>("DELETE", path, { query, directory });
   }
 
-  /**
-   * Subscribe to SSE events. Returns an async iterable of parsed events.
-   * The caller should break out of the loop when done.
-   */
-  async *subscribeSSE(
-    path: string,
-    opts?: { signal?: AbortSignal },
-  ): AsyncGenerator<{ event: string; data: string }, void, undefined> {
-    const url = this.buildUrl(path);
+  async *subscribeSSE(path: string, opts?: { signal?: AbortSignal }): AsyncGenerator<{ event: string; data: string }, void, undefined> {
+    const url = new URL(path, this.baseUrl).toString();
+    const headers: Record<string, string> = {
+      Accept: "text/event-stream",
+      "Cache-Control": "no-cache",
+    };
+    if (this.password) {
+      const username = this.username ?? "opencode";
+      headers["Authorization"] = "Basic " + Buffer.from(`${username}:${this.password}`).toString("base64");
+    }
+
     const res = await fetch(url, {
       method: "GET",
-      headers: {
-        ...this.headers("text/event-stream"),
-        Accept: "text/event-stream",
-        "Cache-Control": "no-cache",
-      },
+      headers,
       signal: opts?.signal,
     });
 
     if (!res.ok) {
       const text = await res.text();
-      throw new OpenCodeError(
-        `SSE ${path} failed (${res.status}): ${text}`,
-        res.status,
-        "GET",
-        path,
-        text,
-      );
+      throw new OpenCodeError(`SSE ${path} failed (${res.status}): ${text}`, res.status, "GET", path, text);
     }
 
-    if (!res.body) {
-      throw new Error("No response body for SSE stream");
-    }
+    if (!res.body) throw new Error("No response body for SSE stream");
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -311,17 +230,7 @@ export class OpenCodeClient {
     let currentEvent = "";
     let currentData = "";
 
-    const abortHandler = () => {
-      try {
-        // Cancels any pending reader.read() and causes the generator to unwind.
-        void reader.cancel().catch(() => {
-          // ignore
-        });
-      } catch {
-        // ignore
-      }
-    };
-
+    const abortHandler = () => { try { void reader.cancel().catch(() => {}); } catch {} };
     if (opts?.signal) {
       if (opts.signal.aborted) abortHandler();
       else opts.signal.addEventListener("abort", abortHandler, { once: true });
@@ -353,11 +262,7 @@ export class OpenCodeClient {
       }
     } finally {
       if (opts?.signal) {
-        try {
-          opts.signal.removeEventListener("abort", abortHandler);
-        } catch {
-          // ignore
-        }
+        try { opts.signal.removeEventListener("abort", abortHandler); } catch {}
       }
       reader.releaseLock();
     }
