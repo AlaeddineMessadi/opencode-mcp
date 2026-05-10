@@ -3,8 +3,6 @@ import { createOpencodeServer, OpencodeClient } from "@opencode-ai/sdk";
 export interface ServerManagerOptions {
   baseUrl: string;
   autoServe?: boolean;
-  username?: string;
-  password?: string;
 }
 
 export interface ServerStatus {

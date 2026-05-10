@@ -196,7 +196,7 @@ registerPrompts(server);
 async function main() {
   // Step 1: Ensure OpenCode server is available (auto-start if needed).
   try {
-    await ensureServer({ baseUrl, autoServe, username, password });
+    await ensureServer({ baseUrl, autoServe });
   } catch (err) {
     // Log the error but don't prevent MCP from starting — tools will
     // report connection errors individually, and the server may come
