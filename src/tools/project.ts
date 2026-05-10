@@ -66,10 +66,18 @@ export function registerProjectTools(
     },
     async ({ path }) => {
       try {
+        if (path.includes("\0")) {
+          throw new Error("path contains NUL bytes");
+        }
         if (!pathUtil.isAbsolute(path)) {
           throw new Error(`path must be an absolute path: ${path}`);
         }
         const resolvedPath = pathUtil.resolve(path);
+
+        const forbiddenRoots = ["/", "/etc", "/usr", "/var", "/bin", "/sbin", "/sys", "/proc", "/dev"];
+        if (forbiddenRoots.some(root => resolvedPath === root || resolvedPath.startsWith(root + pathUtil.sep))) {
+          throw new Error(`System directories are not allowed: ${resolvedPath}`);
+        }
 
         try {
           const stats = await stat(resolvedPath);
