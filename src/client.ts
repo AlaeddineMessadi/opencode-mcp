@@ -55,6 +55,12 @@ function isConnectionError(err: Error): boolean {
   );
 }
 
+function buildBasicAuthHeader(username?: string, password?: string): string | undefined {
+  if (!password) return undefined;
+  const user = username ?? "opencode";
+  return "Basic " + Buffer.from(`${user}:${password}`).toString("base64");
+}
+
 export class OpenCodeClient {
   public api: NativeClient;
   private baseUrl: string;
@@ -70,9 +76,9 @@ export class OpenCodeClient {
     this.password = options.password;
 
     const headers: Record<string, string> = {};
-    if (options.password) {
-      const username = options.username ?? "opencode";
-      headers["Authorization"] = "Basic " + Buffer.from(`${username}:${options.password}`).toString("base64");
+    const authHeader = buildBasicAuthHeader(options.username, options.password);
+    if (authHeader) {
+      headers["Authorization"] = authHeader;
     }
 
     this.api = createOpencodeClient({
@@ -111,25 +117,33 @@ export class OpenCodeClient {
         }
 
         const apiClient = (this.api as any)._client;
+        const controller = opts?.timeout ? new AbortController() : undefined;
+        const timer = controller && opts?.timeout ? setTimeout(() => controller.abort(), opts.timeout) : undefined;
+        const signal = controller?.signal;
+        
         let res;
-        switch (method.toUpperCase()) {
-          case 'GET':
-            res = await apiClient.get({ url: path, query: opts?.query, headers });
-            break;
-          case 'POST':
-            res = await apiClient.post({ url: path, query: opts?.query, body: opts?.body as any, headers });
-            break;
-          case 'PATCH':
-            res = await apiClient.patch({ url: path, query: opts?.query, body: opts?.body as any, headers });
-            break;
-          case 'PUT':
-            res = await apiClient.put({ url: path, query: opts?.query, body: opts?.body as any, headers });
-            break;
-          case 'DELETE':
-            res = await apiClient.delete({ url: path, query: opts?.query, headers });
-            break;
-          default:
-            throw new Error(`Unsupported method ${method}`);
+        try {
+          switch (method.toUpperCase()) {
+            case 'GET':
+              res = await apiClient.get({ url: path, query: opts?.query, headers, signal });
+              break;
+            case 'POST':
+              res = await apiClient.post({ url: path, query: opts?.query, body: opts?.body as any, headers, signal });
+              break;
+            case 'PATCH':
+              res = await apiClient.patch({ url: path, query: opts?.query, body: opts?.body as any, headers, signal });
+              break;
+            case 'PUT':
+              res = await apiClient.put({ url: path, query: opts?.query, body: opts?.body as any, headers, signal });
+              break;
+            case 'DELETE':
+              res = await apiClient.delete({ url: path, query: opts?.query, headers, signal });
+              break;
+            default:
+              throw new Error(`Unsupported method ${method}`);
+          }
+        } finally {
+          if (timer) clearTimeout(timer);
         }
 
         if (res.error) {
@@ -166,9 +180,7 @@ export class OpenCodeClient {
         if (!status.healthy) {
           await ensureServer({ 
             baseUrl: this.baseUrl, 
-            autoServe: true,
-            username: this.username,
-            password: this.password
+            autoServe: true
           });
         }
         return this.request<T>(method, path, opts);
@@ -206,9 +218,9 @@ export class OpenCodeClient {
       Accept: "text/event-stream",
       "Cache-Control": "no-cache",
     };
-    if (this.password) {
-      const username = this.username ?? "opencode";
-      headers["Authorization"] = "Basic " + Buffer.from(`${username}:${this.password}`).toString("base64");
+    const authHeader = buildBasicAuthHeader(this.username, this.password);
+    if (authHeader) {
+      headers["Authorization"] = authHeader;
     }
 
     const res = await fetch(url, {

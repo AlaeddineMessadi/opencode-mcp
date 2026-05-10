@@ -14,7 +14,7 @@ export interface ServerStatus {
   url?: string;
 }
 
-let managedServer: any = null;
+let managedServer: { url: string; close(): void } | null = null;
 let shutdownRegistered = false;
 
 function registerShutdownHandlers(): void {
@@ -75,7 +75,7 @@ export async function startServer(
 ): Promise<{ url: string; version?: string }> {
   const { hostname, port } = parseBaseUrl(baseUrl);
 
-  console.error(`Starting: opencode serve --hostname ${hostname} --port ${port}`);
+  console.error(`Starting OpenCode SDK server on ${hostname}:${port}`);
   
   managedServer = await createOpencodeServer({
     hostname,
@@ -87,7 +87,8 @@ export async function startServer(
 
   registerShutdownHandlers();
 
-  return { url: managedServer.url, version: "unknown" };
+  const status = await isServerRunning(managedServer.url);
+  return { url: managedServer.url, version: status.version };
 }
 
 export function stopServer(): void {

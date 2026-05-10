@@ -2,6 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { OpenCodeClient } from "../client.js";
 import { toolJson, toolError, toolResult, directoryParam } from "../helpers.js";
 import { z } from "zod";
+import { mkdir, stat } from "node:fs/promises";
+import pathUtil from "node:path";
 
 /** Format a project object into a compact summary. */
 function formatProject(p: Record<string, unknown>): string {
@@ -64,18 +66,36 @@ export function registerProjectTools(
     },
     async ({ path }) => {
       try {
-        const fs = await import("fs/promises");
-        await fs.mkdir(path, { recursive: true });
+        if (!pathUtil.isAbsolute(path)) {
+          throw new Error(`path must be an absolute path: ${path}`);
+        }
+        const resolvedPath = pathUtil.resolve(path);
+
+        try {
+          const stats = await stat(resolvedPath);
+          if (!stats.isDirectory()) {
+            throw new Error(`Target exists but is not a directory: ${resolvedPath}`);
+          }
+        } catch (err: any) {
+          if (err.code === "ENOENT") {
+            await mkdir(resolvedPath, { recursive: true });
+          } else {
+            throw err;
+          }
+        }
         
         // Ping OpenCode server in this new directory so it registers as a project
         try {
-          await client.get("/project/current", undefined, path);
+          await client.get("/project/current", undefined, resolvedPath);
         } catch (e) {
-          // Ignore errors if the ping fails, the directory is still created
+          // Best-effort: the directory is already created.
+          console.error(
+            `opencode_project_init: project ping failed for ${resolvedPath}: ${e instanceof Error ? e.message : String(e)}`,
+          );
         }
         
         return toolResult(
-          `Successfully created project directory at: ${path}\n\nYou can now use this path as the \`directory\` parameter in \`opencode_ask\`, \`opencode_run\`, or \`opencode_session_create\` to spawn an isolated agent workload.`
+          `Successfully initialized project directory at: ${resolvedPath}\n\nYou can now use this path as the \`directory\` parameter in \`opencode_ask\`, \`opencode_run\`, or \`opencode_session_create\` to spawn an isolated agent workload.`
         );
       } catch (e) {
         return toolError(e);
