@@ -26,7 +26,6 @@
  *   OPENCODE_AUTO_SERVE       - Set to "false" to disable auto-start (default: true)
  *   OPENCODE_DEFAULT_PROVIDER - Default provider ID when not specified per-tool (optional)
  *   OPENCODE_DEFAULT_MODEL    - Default model ID when not specified per-tool (optional)
- *   OPENCODE_SERVE_ARGS       - Extra arguments for the `opencode serve` auto-start (optional)
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -196,7 +195,7 @@ registerPrompts(server);
 async function main() {
   // Step 1: Ensure OpenCode server is available (auto-start if needed).
   try {
-    await ensureServer({ baseUrl, autoServe });
+    await ensureServer({ baseUrl, autoServe, username, password });
   } catch (err) {
     // Log the error but don't prevent MCP from starting — tools will
     // report connection errors individually, and the server may come

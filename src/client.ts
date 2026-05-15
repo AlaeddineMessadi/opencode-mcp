@@ -113,7 +113,11 @@ export class OpenCodeClient {
         const headers: Record<string, string> = {};
         const normalized = normalizeDirectory(opts?.directory);
         if (normalized) {
-          headers["x-opencode-directory"] = encodeURIComponent(normalized);
+          // The OpenCode server treats this header as a literal absolute
+          // filesystem path. Do NOT URI-encode it — `encodeURIComponent`
+          // would turn `/tmp/proj` into `%2Ftmp%2Fproj` and break project
+          // scoping for every tool that passes a `directory`.
+          headers["x-opencode-directory"] = normalized;
         }
 
         const apiClient = (this.api as any)._client;
@@ -176,11 +180,17 @@ export class OpenCodeClient {
         `Connection failed (attempt ${this.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}), attempting server reconnection...`,
       );
       try {
-        const status = await isServerRunning(this.baseUrl);
+        const status = await isServerRunning(
+          this.baseUrl,
+          this.username,
+          this.password,
+        );
         if (!status.healthy) {
-          await ensureServer({ 
-            baseUrl: this.baseUrl, 
-            autoServe: true
+          await ensureServer({
+            baseUrl: this.baseUrl,
+            autoServe: true,
+            username: this.username,
+            password: this.password,
           });
         }
         return this.request<T>(method, path, opts);

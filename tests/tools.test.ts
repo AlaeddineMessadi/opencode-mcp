@@ -114,9 +114,12 @@ describe("Tool registration", () => {
   });
 
   describe("registerProjectTools", () => {
-    it("registers 2 project tools", () => {
+    it("registers 3 project tools", () => {
       const { tools } = captureTools(registerProjectTools);
-      expect(tools.size).toBe(2);
+      expect(tools.size).toBe(3);
+      expect(tools.has("opencode_project_list")).toBe(true);
+      expect(tools.has("opencode_project_init")).toBe(true);
+      expect(tools.has("opencode_project_current")).toBe(true);
     });
   });
 

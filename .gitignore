@@ -7,3 +7,7 @@ dist/
 projects/
 .axon/
 .opencode/
+
+# Local review/scratch artifacts (e.g. dumped PR comments)
+pr_comments.txt
+*_comments.txt

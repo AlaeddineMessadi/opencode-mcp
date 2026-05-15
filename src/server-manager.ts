@@ -3,6 +3,14 @@ import { createOpencodeServer, OpencodeClient } from "@opencode-ai/sdk";
 export interface ServerManagerOptions {
   baseUrl: string;
   autoServe?: boolean;
+  /**
+   * HTTP Basic auth credentials forwarded to the `/global/health` probe.
+   * Required when the OpenCode server is configured with
+   * `OPENCODE_SERVER_PASSWORD` — without these, the probe would receive 401
+   * and `ensureServer` would falsely treat a healthy server as down.
+   */
+  username?: string;
+  password?: string;
 }
 
 export interface ServerStatus {
@@ -10,6 +18,20 @@ export interface ServerStatus {
   version?: string;
   managedByUs: boolean;
   url?: string;
+}
+
+/**
+ * Build an `Authorization: Basic ...` header value, or undefined when no
+ * password is configured. Mirrors the helper in `src/client.ts` to keep the
+ * two HTTP entry points consistent.
+ */
+function buildBasicAuthHeader(
+  username?: string,
+  password?: string,
+): string | undefined {
+  if (!password) return undefined;
+  const user = username ?? "opencode";
+  return "Basic " + Buffer.from(`${user}:${password}`).toString("base64");
 }
 
 let managedServer: { url: string; close(): void } | null = null;
@@ -47,10 +69,18 @@ function parseBaseUrl(baseUrl: string): { hostname: string; port: number } {
 
 export async function isServerRunning(
   baseUrl: string,
+  username?: string,
+  password?: string,
 ): Promise<{ healthy: boolean; version?: string }> {
   try {
+    const headers: Record<string, string> = {};
+    const authHeader = buildBasicAuthHeader(username, password);
+    if (authHeader) {
+      headers["Authorization"] = authHeader;
+    }
     const response = await fetch(`${baseUrl.replace(/\/$/, "")}/global/health`, {
       method: "GET",
+      headers,
       signal: AbortSignal.timeout(3000),
     });
     if (!response.ok) return { healthy: false };
@@ -79,12 +109,13 @@ export async function startServer(
     hostname,
     port,
     timeout: timeoutMs,
-    // Add any OPENCODE_SERVE_ARGS to config if needed in the future
-    // Currently the SDK handles this via config objects
   });
 
   registerShutdownHandlers();
 
+  // Note: managed (in-process) SDK servers do not enforce auth, so this probe
+  // is unauthenticated by design. External servers, when present, are probed
+  // with credentials from `ensureServer`.
   const status = await isServerRunning(managedServer.url);
   return { url: managedServer.url, version: status.version };
 }
@@ -102,7 +133,7 @@ export async function ensureServer(
   const baseUrl = opts.baseUrl;
   const autoServe = opts.autoServe !== false;
 
-  const existing = await isServerRunning(baseUrl);
+  const existing = await isServerRunning(baseUrl, opts.username, opts.password);
   if (existing.healthy) {
     console.error(
       `OpenCode server already running at ${baseUrl} (v${existing.version ?? "unknown"})`,
