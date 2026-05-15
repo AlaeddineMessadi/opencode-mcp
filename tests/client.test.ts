@@ -1,4 +1,41 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+/**
+ * Mock the server-manager module so reconnect-path tests don't try to boot
+ * a real OpenCode server. The `vi.hoisted` block keeps the mock references
+ * accessible from both the (hoisted) `vi.mock` factory and the test body.
+ */
+const { isServerRunningMock, ensureServerMock } = vi.hoisted(() => ({
+  isServerRunningMock: vi.fn(),
+  ensureServerMock: vi.fn(),
+}));
+vi.mock("../src/server-manager.js", () => ({
+  isServerRunning: isServerRunningMock,
+  ensureServer: ensureServerMock,
+}));
+
+/**
+ * Mock `@opencode-ai/sdk` so every call to `createOpencodeClient` (both the
+ * one in the `OpenCodeClient` constructor and the one issued by
+ * `buildSdkClient` during reconnect) returns the same factory output. Tests
+ * push call recorders onto a shared queue and can therefore observe the URL
+ * that each rebuilt SDK client targets.
+ */
+const sdkClientFactory = vi.hoisted(() => {
+  const factories: Array<(opts: { baseUrl: string }) => unknown> = [];
+  return {
+    factories,
+    create: (opts: { baseUrl: string }) => {
+      const factory = factories.shift() ?? (() => ({ _client: {} }));
+      return factory(opts);
+    },
+  };
+});
+vi.mock("@opencode-ai/sdk", () => ({
+  createOpencodeClient: sdkClientFactory.create,
+  OpencodeClient: vi.fn(),
+}));
+
 import { OpenCodeClient, OpenCodeError } from "../src/client.js";
 import { normalizeDirectory } from "../src/helpers.js";
 
@@ -204,6 +241,142 @@ describe("x-opencode-directory header", () => {
     await client.get("/project/current");
 
     expect(calls[0].headers["x-opencode-directory"]).toBeUndefined();
+  });
+});
+
+// ─── Reconnect path: URL rebinding + reconnectAttempts reset ─────────────
+
+describe("reconnect path", () => {
+  beforeEach(() => {
+    isServerRunningMock.mockReset();
+    ensureServerMock.mockReset();
+    sdkClientFactory.factories.length = 0;
+  });
+
+  /**
+   * Queue SDK-client factories such that every produced `_client` shares
+   * the same call-counter closure. The retry loop in `client.ts` runs
+   * `MAX_RETRIES + 1` = 3 attempts before falling through to the reconnect
+   * branch; tests exercising reconnect need at least 3 failures + 1 success.
+   *
+   * Each call records the `baseUrl` the factory was called with, so tests
+   * can assert that the retry issued after `ensureServer()` targets the
+   * rebound URL.
+   */
+  const MAX_RETRIES_PLUS_ONE = 3;
+  function queueFlakySdkClients(
+    factoryCount: number,
+  ): Array<{ baseUrl: string }> {
+    const calls: Array<{ baseUrl: string }> = [];
+    let count = 0;
+    for (let i = 0; i < factoryCount; i++) {
+      sdkClientFactory.factories.push((opts: { baseUrl: string }) => ({
+        _client: {
+          get: async () => {
+            count++;
+            calls.push({ baseUrl: opts.baseUrl });
+            if (count <= MAX_RETRIES_PLUS_ONE) {
+              throw new Error("fetch failed");
+            }
+            return {
+              data: { ok: true },
+              error: undefined,
+              response: { status: 200 },
+            };
+          },
+        },
+      }));
+    }
+    return calls;
+  }
+
+  it("rebuilds the SDK client when ensureServer returns a different url", async () => {
+    // Two factories: one for the constructor, one for the post-reconnect
+    // rebuild. Both share the same call-counter closure, so the 4th call
+    // (the retry triggered after reconnect) succeeds.
+    const calls = queueFlakySdkClients(2);
+
+    const client = new OpenCodeClient({
+      baseUrl: "http://localhost:4096",
+      autoServe: true,
+    });
+    const originalApi = client.api;
+
+    isServerRunningMock.mockResolvedValueOnce({ healthy: false });
+    ensureServerMock.mockResolvedValueOnce({
+      running: true,
+      version: "1.14.46",
+      managedByUs: true,
+      url: "http://localhost:5000",
+    });
+
+    await client.get("/health");
+
+    expect(ensureServerMock).toHaveBeenCalledOnce();
+    expect(client.getBaseUrl()).toBe("http://localhost:5000");
+    // First 3 calls (the initial retry loop) target the original URL;
+    // the 4th call — the retry triggered by the reconnect branch — must
+    // observe the rebound baseUrl.
+    expect(calls[0].baseUrl).toBe("http://localhost:4096");
+    expect(calls[calls.length - 1].baseUrl).toBe("http://localhost:5000");
+    // SDK client should be re-instantiated when the URL changes.
+    expect(client.api).not.toBe(originalApi);
+  });
+
+  it("does not rebuild the SDK client when ensureServer returns the same url", async () => {
+    queueFlakySdkClients(2);
+
+    const client = new OpenCodeClient({
+      baseUrl: "http://localhost:4096",
+      autoServe: true,
+    });
+    const originalApi = client.api;
+
+    isServerRunningMock.mockResolvedValueOnce({ healthy: false });
+    ensureServerMock.mockResolvedValueOnce({
+      running: true,
+      version: "1.14.46",
+      managedByUs: true,
+      url: "http://localhost:4096",
+    });
+
+    await client.get("/health");
+
+    expect(client.getBaseUrl()).toBe("http://localhost:4096");
+    expect(client.api).toBe(originalApi);
+  });
+
+  it("resets reconnectAttempts after a successful request", async () => {
+    // 4 round-trips × at most 2 factories each (constructor + possible
+    // rebuild). Constructor only registers one factory; the rebuild path
+    // only fires when ensureServer returns a different URL, which it
+    // doesn't here. So 4 round-trips share the constructor factory's
+    // counter — that's exactly what we want: each round-trip resets the
+    // counter independently because we requeue a fresh factory.
+    const client = new OpenCodeClient({
+      baseUrl: "http://localhost:4096",
+      autoServe: true,
+    });
+
+    // 4 round-trips, each: 3 failures → reconnect (healthy probe) → success.
+    for (let i = 0; i < 4; i++) {
+      queueFlakySdkClients(1);
+      // Replace the SDK client's `_client` with the freshly-queued factory's
+      // output so the next request hits a fresh 3-fail-then-succeed cycle.
+      const factory = sdkClientFactory.factories.shift();
+      if (factory) {
+        const fresh = factory({ baseUrl: client.getBaseUrl() }) as { _client: unknown };
+        (client.api as unknown as { _client: unknown })._client = fresh._client;
+      }
+      isServerRunningMock.mockResolvedValueOnce({ healthy: true, version: "1.14.46" });
+      await client.get("/health");
+    }
+
+    // All 4 requests should have invoked the reconnect path. If
+    // reconnectAttempts had monotonically grown (the bug), the cap of 3
+    // would have been hit on the 4th request and the reconnect branch
+    // would have been skipped → only 3 probes.
+    expect(isServerRunningMock).toHaveBeenCalledTimes(4);
   });
 });
 

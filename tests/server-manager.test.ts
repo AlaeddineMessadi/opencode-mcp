@@ -349,4 +349,38 @@ describe("ensureServer", () => {
     const headers = (init.headers ?? {}) as Record<string, string>;
     expect(headers.Authorization).toBe("Basic YWRtaW46c2VjcmV0MTIz");
   });
+
+  it("serializes concurrent startups onto one createOpencodeServer call", async () => {
+    // Both initial probes report unhealthy → both callers reach the
+    // startServer branch. Without the in-flight lock, this would race
+    // `createOpencodeServer` twice (EADDRINUSE / leaked handle).
+    mockFetchDown();
+    mockFetchDown();
+
+    // Single createOpencodeServer resolution shared by both callers.
+    let resolveStart: (value: { url: string; close(): void }) => void;
+    const startPromise = new Promise<{ url: string; close(): void }>((r) => {
+      resolveStart = r;
+    });
+    createOpencodeServerMock.mockReturnValueOnce(startPromise);
+
+    // Post-start health probe for both callers.
+    mockFetchHealthy("1.14.46");
+    mockFetchHealthy("1.14.46");
+
+    const [a, b] = await Promise.all([
+      (async () => {
+        const p = ensureServer({ baseUrl: "http://127.0.0.1:4096" });
+        // Resolve after both callers have queued, so both observe the
+        // in-flight promise rather than racing into a second start.
+        resolveStart({ url: "http://127.0.0.1:4096", close: vi.fn() });
+        return p;
+      })(),
+      ensureServer({ baseUrl: "http://127.0.0.1:4096" }),
+    ]);
+
+    expect(createOpencodeServerMock).toHaveBeenCalledOnce();
+    expect(a.running).toBe(true);
+    expect(b.running).toBe(true);
+  });
 });

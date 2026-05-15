@@ -75,16 +75,21 @@ export class OpenCodeClient {
     this.username = options.username;
     this.password = options.password;
 
+    this.api = this.buildSdkClient();
+  }
+
+  /**
+   * Rebuild the SDK client against the current `baseUrl` + auth state. Used
+   * by the constructor and by the reconnect path when `ensureServer()`
+   * surfaces a different URL than the one we were aiming at.
+   */
+  private buildSdkClient(): NativeClient {
     const headers: Record<string, string> = {};
-    const authHeader = buildBasicAuthHeader(options.username, options.password);
+    const authHeader = buildBasicAuthHeader(this.username, this.password);
     if (authHeader) {
       headers["Authorization"] = authHeader;
     }
-
-    this.api = createOpencodeClient({
-      baseUrl: this.baseUrl,
-      headers
-    });
+    return createOpencodeClient({ baseUrl: this.baseUrl, headers });
   }
 
   getBaseUrl(): string {
@@ -161,6 +166,9 @@ export class OpenCodeClient {
           throw err;
         }
 
+        // Successful round-trip — replenish the reconnect budget so a
+        // long-lived client doesn't permanently exhaust auto-healing.
+        this.reconnectAttempts = 0;
         return res.data as T;
       } catch (e) {
         if (e instanceof OpenCodeError) throw e;
@@ -186,12 +194,23 @@ export class OpenCodeClient {
           this.password,
         );
         if (!status.healthy) {
-          await ensureServer({
+          const ensured = await ensureServer({
             baseUrl: this.baseUrl,
             autoServe: true,
             username: this.username,
             password: this.password,
           });
+          // If `ensureServer()` chose a different URL (e.g. the managed
+          // SDK server bound to an alternative port), rebuild the SDK
+          // client so the retry targets the live endpoint instead of the
+          // dead one we were originally probing.
+          if (ensured.url) {
+            const normalized = ensured.url.replace(/\/$/, "");
+            if (normalized !== this.baseUrl) {
+              this.baseUrl = normalized;
+              this.api = this.buildSdkClient();
+            }
+          }
         }
         return this.request<T>(method, path, opts);
       } catch (reconnectErr) {

@@ -37,6 +37,16 @@ function buildBasicAuthHeader(
 let managedServer: { url: string; close(): void } | null = null;
 let shutdownRegistered = false;
 
+/**
+ * Module-level in-flight startup promise. Serializes concurrent
+ * `ensureServer` callers so only one of them invokes `createOpencodeServer`
+ * — others await the same result. Prevents EADDRINUSE / leaked server
+ * handles when two requests hit the MCP simultaneously and both observe the
+ * initial health probe as unhealthy.
+ */
+let startServerInFlight: Promise<{ url: string; version?: string }> | null =
+  null;
+
 function registerShutdownHandlers(): void {
   if (shutdownRegistered) return;
   shutdownRegistered = true;
@@ -154,7 +164,14 @@ export async function ensureServer(
   }
 
   console.error("OpenCode server not detected, attempting auto-start...");
-  const result = await startServer(baseUrl);
+  // Coalesce concurrent startups onto a single in-flight promise — see the
+  // `startServerInFlight` declaration for rationale.
+  if (!startServerInFlight) {
+    startServerInFlight = startServer(baseUrl).finally(() => {
+      startServerInFlight = null;
+    });
+  }
+  const result = await startServerInFlight;
   console.error(`OpenCode server started successfully on ${result.url}`);
 
   return {
