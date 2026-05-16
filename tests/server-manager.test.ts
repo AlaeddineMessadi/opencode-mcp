@@ -383,4 +383,37 @@ describe("ensureServer", () => {
     expect(a.running).toBe(true);
     expect(b.running).toBe(true);
   });
+
+  it("does NOT coalesce concurrent startups across different baseUrls", async () => {
+    // Two concurrent callers targeting different URLs must each invoke
+    // their own `createOpencodeServer`. Before the per-baseUrl keying,
+    // the second caller would await the first caller's in-flight promise
+    // and receive the wrong endpoint.
+    //
+    // The mock returns whichever URL was passed in, so each caller gets
+    // back its own startup result regardless of which one races to call
+    // the mock first.
+    mockFetchDown();
+    mockFetchDown();
+
+    createOpencodeServerMock.mockImplementation(
+      async (opts: { hostname: string; port: number }) => ({
+        url: `http://${opts.hostname}:${opts.port}`,
+        close: vi.fn(),
+      }),
+    );
+
+    // Post-start health probes for both.
+    mockFetchHealthy("1.14.46");
+    mockFetchHealthy("1.14.46");
+
+    const [a, b] = await Promise.all([
+      ensureServer({ baseUrl: "http://127.0.0.1:4096" }),
+      ensureServer({ baseUrl: "http://127.0.0.1:5000" }),
+    ]);
+
+    expect(createOpencodeServerMock).toHaveBeenCalledTimes(2);
+    expect(a.url).toBe("http://127.0.0.1:4096");
+    expect(b.url).toBe("http://127.0.0.1:5000");
+  });
 });

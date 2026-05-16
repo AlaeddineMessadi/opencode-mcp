@@ -38,14 +38,21 @@ let managedServer: { url: string; close(): void } | null = null;
 let shutdownRegistered = false;
 
 /**
- * Module-level in-flight startup promise. Serializes concurrent
- * `ensureServer` callers so only one of them invokes `createOpencodeServer`
- * — others await the same result. Prevents EADDRINUSE / leaked server
- * handles when two requests hit the MCP simultaneously and both observe the
+ * In-flight startup promises, keyed by normalized `baseUrl`. Serializes
+ * concurrent `ensureServer` callers so only one of them invokes
+ * `createOpencodeServer` per target URL — others awaiting the same key
+ * receive the same result. Prevents EADDRINUSE / leaked server handles
+ * when two requests hit the MCP simultaneously and both observe the
  * initial health probe as unhealthy.
+ *
+ * Keying by `baseUrl` matters because two callers targeting different
+ * URLs must NOT share each other's result (the second caller would
+ * receive the first server's URL and bind to the wrong endpoint).
  */
-let startServerInFlight: Promise<{ url: string; version?: string }> | null =
-  null;
+const startServerInFlight = new Map<
+  string,
+  Promise<{ url: string; version?: string }>
+>();
 
 function registerShutdownHandlers(): void {
   if (shutdownRegistered) return;
@@ -114,20 +121,26 @@ export async function startServer(
   const { hostname, port } = parseBaseUrl(baseUrl);
 
   console.error(`Starting OpenCode SDK server on ${hostname}:${port}`);
-  
-  managedServer = await createOpencodeServer({
+
+  // Capture into a local so concurrent `startServer` calls (against
+  // different baseUrls) don't clobber each other's return values via the
+  // module-level `managedServer` singleton. The singleton is still
+  // updated (for shutdown handler reach) but the URL we return is the
+  // one this specific call produced.
+  const created = await createOpencodeServer({
     hostname,
     port,
     timeout: timeoutMs,
   });
+  managedServer = created;
 
   registerShutdownHandlers();
 
   // Note: managed (in-process) SDK servers do not enforce auth, so this probe
   // is unauthenticated by design. External servers, when present, are probed
   // with credentials from `ensureServer`.
-  const status = await isServerRunning(managedServer.url);
-  return { url: managedServer.url, version: status.version };
+  const status = await isServerRunning(created.url);
+  return { url: created.url, version: status.version };
 }
 
 export function stopServer(): void {
@@ -164,14 +177,17 @@ export async function ensureServer(
   }
 
   console.error("OpenCode server not detected, attempting auto-start...");
-  // Coalesce concurrent startups onto a single in-flight promise — see the
+  // Coalesce concurrent startups per-baseUrl — see the
   // `startServerInFlight` declaration for rationale.
-  if (!startServerInFlight) {
-    startServerInFlight = startServer(baseUrl).finally(() => {
-      startServerInFlight = null;
+  const startupKey = baseUrl.replace(/\/$/, "");
+  let inFlight = startServerInFlight.get(startupKey);
+  if (!inFlight) {
+    inFlight = startServer(startupKey).finally(() => {
+      startServerInFlight.delete(startupKey);
     });
+    startServerInFlight.set(startupKey, inFlight);
   }
-  const result = await startServerInFlight;
+  const result = await inFlight;
   console.error(`OpenCode server started successfully on ${result.url}`);
 
   return {
