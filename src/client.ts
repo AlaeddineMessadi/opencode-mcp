@@ -284,10 +284,17 @@ export class OpenCodeClient {
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
+        const rawLines = buffer.split("\n");
+        buffer = rawLines.pop() ?? "";
 
-        for (const line of lines) {
+        for (const rawLine of rawLines) {
+          // SSE per RFC 8895 allows CRLF line endings. Splitting on
+          // "\n" leaves a trailing "\r" on each line, which breaks
+          // both event-name comparisons (event becomes "message\r")
+          // and the blank-line dispatcher (a "blank" CRLF line is
+          // "\r", not ""). Strip the trailing CR before processing.
+          const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+
           if (line.startsWith("event:")) {
             currentEvent = line.slice(6).trim();
           } else if (line.startsWith("data:")) {

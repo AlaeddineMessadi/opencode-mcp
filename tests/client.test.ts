@@ -380,6 +380,79 @@ describe("reconnect path", () => {
   });
 });
 
+// ─── SSE line-ending handling ────────────────────────────────────────────
+
+describe("subscribeSSE", () => {
+  /**
+   * Build a `ReadableStream<Uint8Array>` from a single string. Used to
+   * drive `subscribeSSE` without standing up an HTTP server.
+   */
+  function streamFrom(body: string): ReadableStream<Uint8Array> {
+    const encoded = new TextEncoder().encode(body);
+    return new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoded);
+        controller.close();
+      },
+    });
+  }
+
+  /** Drive a fake `fetch` so `subscribeSSE` consumes our scripted body. */
+  function installFakeFetch(body: string) {
+    return vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: streamFrom(body),
+      text: async () => "",
+    } as unknown as Response);
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * Regression: the SSE parser used to `split("\n")`, which left a
+   * trailing `\r` on every line when servers emit `\r\n` (RFC 8895
+   * permits CRLF). That broke the event name (`"message\r"` instead of
+   * `"message"`) and the blank-line dispatcher (`"\r" !== ""`).
+   */
+  it("parses events when the server uses CRLF line endings", async () => {
+    const body =
+      "event: ready\r\n" +
+      "data: hello\r\n" +
+      "\r\n" +
+      "event: chunk\r\n" +
+      "data: world\r\n" +
+      "\r\n";
+    installFakeFetch(body);
+
+    const client = new OpenCodeClient({ baseUrl: "http://localhost:4096" });
+    const events: Array<{ event: string; data: string }> = [];
+    for await (const e of client.subscribeSSE("/events")) {
+      events.push(e);
+    }
+
+    expect(events).toEqual([
+      { event: "ready", data: "hello" },
+      { event: "chunk", data: "world" },
+    ]);
+  });
+
+  it("still parses events when the server uses LF line endings", async () => {
+    const body = "event: ready\ndata: hello\n\n";
+    installFakeFetch(body);
+
+    const client = new OpenCodeClient({ baseUrl: "http://localhost:4096" });
+    const events: Array<{ event: string; data: string }> = [];
+    for await (const e of client.subscribeSSE("/events")) {
+      events.push(e);
+    }
+
+    expect(events).toEqual([{ event: "ready", data: "hello" }]);
+  });
+});
+
 // ─── HTTP method dispatch (deferred — see comment at top of file) ────────
 
 describe.skip("OpenCodeClient HTTP methods (TODO: revive after C1 — HttpTransport interface)", () => {

@@ -950,6 +950,19 @@ describe("normalizeDirectory", () => {
       expect(result).toMatch(/^[A-Za-z]:\\/);
     },
   );
+
+  // Regression: header-injection defense.
+  // `x-opencode-directory` is forwarded verbatim to the OpenCode server.
+  // Node's `undici` rejects CR/LF in header values, but `normalizeDirectory`
+  // guards explicitly so the contract is independent of the runtime.
+  it.each([
+    ["NUL byte", "/tmp\0/x"],
+    ["CR", "/tmp\rfoo"],
+    ["LF", "/tmp\nfoo"],
+    ["CRLF", "/tmp\r\nfoo"],
+  ])("rejects paths containing %s", (_label, badPath) => {
+    expect(() => normalizeDirectory(badPath)).toThrow(/NUL or CR\/LF/);
+  });
 });
 
 // ─── diagnoseError (via toolError) ───────────────────────────────────────
