@@ -72,7 +72,7 @@ const client = new OpenCodeClient({ baseUrl, username, password, autoServe });
 const server = new McpServer(
   {
     name: "opencode-mcp",
-    version: "1.10.1",
+    version: "1.10.2",
     description:
       "MCP server wrapping the OpenCode AI coding agent. " +
       "Delegates complex coding tasks (build apps, refactor, debug) to an autonomous AI agent. " +
@@ -213,7 +213,7 @@ async function main() {
     ? ` | defaults: ${defaultProvider}/${defaultModel}`
     : "";
   console.error(
-    `opencode-mcp v1.10.1 started (OpenCode server at ${baseUrl}${defaultsInfo})`,
+    `opencode-mcp v1.10.2 started (OpenCode server at ${baseUrl}${defaultsInfo})`,
   );
 }
 

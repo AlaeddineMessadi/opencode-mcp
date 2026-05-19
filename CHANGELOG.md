@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.2] - 2026-05-16
+
+### Fixed
+
+- **`normalizeDirectory` rejected valid Windows absolute paths** (#5, #6, #13) — the resolved-path check used `startsWith("/")`, which only matches POSIX. On Windows hosts (including `npx`-spawned MCPs talking to a WSL OpenCode), `path.resolve("/mnt/d/Projects/foo")` returns `"\\mnt\\d\\Projects\\foo"`, which failed the check and rendered every tool's `directory` parameter unusable for Windows clients. Switched to the platform-aware `path.isAbsolute` from `node:path`, which accepts both POSIX (`/home/user/project`) and Windows (`C:\Users\me\project`, `\\server\share`) absolute paths. Updated the error message to show both forms.
+
+### Added
+
+- **`OPENCODE_SERVE_ARGS` environment variable** (#7, #9) — pass custom arguments to the `opencode serve` subprocess at auto-start. Useful for advanced server configuration. Thanks @xpufx for the issue.
+- **Model variant parameter on all model-accepting tools** (#8, #10) — `opencode_ask`, `opencode_run`, `opencode_fire`, `opencode_reply`, `opencode_message_send*` now accept an optional `variant` to target a specific model variant. Thanks @iamabigartist for the issue.
+
+### Stats
+
+- Tool count: 79
+- Tests: 321
+
 ## [1.10.1] - 2026-04-10
 
 ### Changed
