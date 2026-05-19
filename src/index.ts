@@ -9,7 +9,7 @@
  * providers, and more.
  *
  * Features:
- *  - 79 tools covering the entire OpenCode API surface
+ *  - 80 tools covering the entire OpenCode API surface
  *  - High-level workflow tools (opencode_ask, opencode_reply, etc.)
  *  - Smart response formatting for LLM-friendly output
  *  - MCP Resources for browseable project data
@@ -71,7 +71,7 @@ const client = new OpenCodeClient({ baseUrl, username, password, autoServe });
 const server = new McpServer(
   {
     name: "opencode-mcp",
-    version: "1.10.2",
+    version: "1.11.0",
     description:
       "MCP server wrapping the OpenCode AI coding agent. " +
       "Delegates complex coding tasks (build apps, refactor, debug) to an autonomous AI agent. " +
@@ -82,7 +82,7 @@ const server = new McpServer(
       "# OpenCode MCP — Guide for LLM Clients",
       "",
       "You are connected to OpenCode, an autonomous AI coding agent that can build, edit, and debug software projects.",
-      "This server exposes ~79 tools organized into tiers. Use high-level tools first; drop to low-level only when needed.",
+      "This server exposes ~80 tools organized into tiers. Use high-level tools first; drop to low-level only when needed.",
       "",
       "## Getting Started (First Time)",
       "1. Call `opencode_setup` — checks server health, shows configured providers, and suggests next steps.",
@@ -212,7 +212,7 @@ async function main() {
     ? ` | defaults: ${defaultProvider}/${defaultModel}`
     : "";
   console.error(
-    `opencode-mcp v1.10.2 started (OpenCode server at ${baseUrl}${defaultsInfo})`,
+    `opencode-mcp v1.11.0 started (OpenCode server at ${baseUrl}${defaultsInfo})`,
   );
 }
 

@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] - 2026-05-19
+
+Architectural release. Migrates server lifecycle to the official `@opencode-ai/sdk`, adds a tool for parallel project initialization, and lands a substantial security/correctness pass on the HTTP and SSE layers.
+
+### Added
+
+- **`opencode_project_init` tool** (#11) — initialize or open a project directory to host an independent OpenCode session. Designed for MCP clients orchestrating parallel multi-project workloads. Creates the directory (`mkdir -p`, idempotent on existing dirs), then pings the OpenCode server at that path to register it as a project. The tool returns the canonical (realpath'd) absolute path so downstream calls can rely on it.
+
+### Changed
+
+- **Server lifecycle now uses `@opencode-ai/sdk`'s `createOpencodeServer`** (#11) instead of `spawn("opencode serve")`. The HTTP server still runs on a port (default `127.0.0.1:4096`), but it's hosted in-process rather than as a child process. Eliminates zombie processes, port-binding races, and the binary-discovery code path. `OPENCODE_SERVE_ARGS` is now silently ignored (the SDK manages config in-process).
+- **Reconnect logic rebinds `baseUrl` from `ensureServer()` result** — when the managed server comes up on a different URL than expected, the client rebuilds its SDK instance against the new endpoint before retrying the failed request instead of hammering the dead one.
+- **`reconnectAttempts` budget now resets on successful requests** — previously the counter grew monotonically, so a long-lived client permanently exhausted its auto-heal capacity after three reconnects.
+- **Startup serialization is now keyed by `baseUrl`** — concurrent `ensureServer()` calls targeting different URLs each get their own startup promise. Same-target callers still share one `createOpencodeServer()` invocation.
+
+### Security
+
+- **Symlink escape in `opencode_project_init` closed** — `path.resolve` only canonicalizes `..`/`.` lexically. A symlink at e.g. `/tmp/safe → /etc` would have passed the forbidden-roots check, then OpenCode would scope its session into `/etc`. The tool now calls `realpath` after `mkdir` and re-runs the deny-list against the canonical path. Forbidden roots are also realpath'd at module load so macOS-style symlinks (`/etc → /private/etc`) match in either form.
+- **`/var` removed from the project_init forbidden-roots list** — macOS user-temp directories live under `/var/folders` and many `/var` subtrees are legitimately user-writable. The original deny-list rejected `os.tmpdir()` paths on macOS; a latent bug uncovered while writing the new regression tests.
+- **CRLF/NUL guard in `normalizeDirectory`** — Node's `undici` already rejects CRLF in header values, so this isn't currently exploitable, but `normalizeDirectory` now explicitly rejects NUL and CR/LF so the contract is independent of the runtime.
+- **Basic auth header now propagated to `/global/health` probe** — when `OPENCODE_SERVER_PASSWORD` was set, the probe was rejected with 401, `isServerRunning` reported unhealthy, and `ensureServer` looped trying to auto-start an already-running server.
+- **`x-opencode-directory` header sent raw, no longer URI-encoded** — the OpenCode server treats the header as a literal absolute filesystem path; URI-encoding turned `/tmp/proj` into `%2Ftmp%2Fproj` and broke project scoping for every multi-project tool call.
+- **`opencode_project_init` validates `isAbsolute`, rejects NUL bytes, rejects `\r`/`\n`, denies system roots** (`/`, `/etc`, `/usr`, `/bin`, `/sbin`, `/sys`, `/proc`, `/dev`).
+
+### Fixed
+
+- **SSE event parser dropped events when the server used CRLF line endings** — the parser split on `"\n"` only, leaving `\r` on every line. Event names came out as `"message\r"` and the blank-line dispatcher (`"\r" !== ""`) never fired, silently corrupting `opencode_events_poll` and any downstream SSE consumers.
+- **Per-call timeouts now propagated to the HTTP dispatcher** via `AbortSignal`. Long-running tools no longer hang past their stated timeout.
+
+### Stats
+
+- Tool count: 80 (up from 79)
+- Tests: 328 (up from 321)
+
 ## [1.10.2] - 2026-05-16
 
 ### Fixed
