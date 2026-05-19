@@ -82,20 +82,37 @@ export function applyModelDefaults(
 
 /**
  * Normalize and validate a directory path:
+ *  - Rejects NUL bytes and CR/LF (defense-in-depth against header injection
+ *    when the path is forwarded as `x-opencode-directory`).
  *  - Resolves to absolute (handles "..", ".", trailing slashes, and
- *    converts relative inputs against `process.cwd()`)
- *  - Confirms the resolved path is absolute for the current platform
- *  - Validates that the path exists on disk
+ *    converts relative inputs against `process.cwd()`).
+ *  - Confirms the resolved path is absolute for the current platform.
+ *  - Validates that the path exists on disk.
  *
  * Accepts both POSIX ("/home/user/my-project") and Windows
  * ("C:\\Users\\me\\my-project", "\\\\server\\share") absolute paths via
  * the platform-aware `resolve` + `isAbsolute` from `node:path`.
+ *
+ * Note: does NOT resolve symlinks. The OpenCode server is the
+ * authoritative consumer of this value and decides how to interpret
+ * symlinks; MCP-side deny-list checks (e.g., `opencode_project_init`)
+ * apply `realpath` themselves before consulting their own deny-lists.
  *
  * Returns the normalized path, or undefined if input was undefined.
  * Throws a descriptive Error on validation failure.
  */
 export function normalizeDirectory(directory?: string): string | undefined {
   if (!directory) return undefined;
+
+  // Reject control bytes that could smuggle headers when this value is
+  // forwarded as `x-opencode-directory`. Node's `undici` rejects CR/LF in
+  // header values, but defending here keeps the contract explicit and
+  // protects against future runtime changes or non-fetch transports.
+  if (/[\0\r\n]/.test(directory)) {
+    throw new Error(
+      `Invalid directory: path must not contain NUL or CR/LF characters.`,
+    );
+  }
 
   // Resolve to an absolute, platform-appropriate form. `resolve` handles
   // "..", ".", trailing slashes, and will convert a relative input against
