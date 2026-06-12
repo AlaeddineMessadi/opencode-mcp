@@ -64,15 +64,14 @@ export function setModelDefaults(providerID?: string, modelID?: string): void {
 export function applyModelDefaults(
   providerID?: string,
   modelID?: string,
-  variant?: string,
-): { providerID: string; modelID: string; variant?: string } | undefined {
+): { providerID: string; modelID: string } | undefined {
   // Explicit params take priority
   if (providerID && modelID) {
-    return { providerID, modelID, ...(variant ? { variant } : {}) };
+    return { providerID, modelID };
   }
   // Fall back to env-var defaults
   if (_defaultProviderID && _defaultModelID) {
-    return { providerID: _defaultProviderID, modelID: _defaultModelID, ...(variant ? { variant } : {}) };
+    return { providerID: _defaultProviderID, modelID: _defaultModelID };
   }
   // No defaults available — let the server decide
   return undefined;

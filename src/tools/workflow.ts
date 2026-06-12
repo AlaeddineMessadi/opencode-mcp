@@ -261,8 +261,9 @@ export function registerWorkflowTools(
         const body: Record<string, unknown> = {
           parts: [{ type: "text", text: prompt }],
         };
-        const model = applyModelDefaults(providerID, modelID, variant);
+        const model = applyModelDefaults(providerID, modelID);
         if (model) body.model = model;
+        if (variant) body.variant = variant;
         if (agent) body.agent = agent;
         if (system) body.system = system;
 
@@ -308,8 +309,9 @@ export function registerWorkflowTools(
         const body: Record<string, unknown> = {
           parts: [{ type: "text", text: prompt }],
         };
-        const model = applyModelDefaults(providerID, modelID, variant);
+        const model = applyModelDefaults(providerID, modelID);
         if (model) body.model = model;
+        if (variant) body.variant = variant;
         if (agent) body.agent = agent;
 
         const response = await client.post(
@@ -607,10 +609,11 @@ export function registerWorkflowTools(
         };
         // Use the specified model, or let the provider pick its default
         if (modelID) {
-          body.model = { providerID: providerId, modelID, ...(variant ? { variant } : {}) };
+          body.model = { providerID: providerId, modelID };
         } else {
           body.providerID = providerId;
         }
+        if (variant) body.variant = variant;
 
         const response = await client.post(
           `/session/${sessionId}/message`,
@@ -688,8 +691,9 @@ export function registerWorkflowTools(
           parts: [{ type: "text", text: prompt }],
           noReply: false,
         };
-        const model = applyModelDefaults(providerID, modelID, variant);
+        const model = applyModelDefaults(providerID, modelID);
         if (model) body.model = model;
+        if (variant) body.variant = variant;
         if (agent) body.agent = agent;
 
         await client.post(`/session/${sid}/message`, body, { directory });
@@ -802,8 +806,9 @@ export function registerWorkflowTools(
           parts: [{ type: "text", text: prompt }],
           noReply: false,
         };
-        const model = applyModelDefaults(providerID, modelID, variant);
+        const model = applyModelDefaults(providerID, modelID);
         if (model) body.model = model;
+        if (variant) body.variant = variant;
         if (agent) body.agent = agent;
 
         await client.post(`/session/${sid}/message`, body, { directory });
