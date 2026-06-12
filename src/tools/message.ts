@@ -228,10 +228,9 @@ export function registerMessageTools(
       agent: z.string().describe("Agent to use for the shell command"),
       providerID: z.string().optional().describe("Provider ID"),
       modelID: z.string().optional().describe("Model ID"),
-      variant: z.string().optional().describe("Model variant"),
       directory: directoryParam,
     },
-    async ({ sessionId, command, agent, providerID, modelID, variant, directory }) => {
+    async ({ sessionId, command, agent, providerID, modelID, directory }) => {
       try {
         const body: Record<string, unknown> = { command, agent };
         const shellModel = applyModelDefaults(providerID, modelID);

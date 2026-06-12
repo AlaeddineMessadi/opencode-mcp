@@ -28,15 +28,16 @@ function createMockClient(overrides: Record<string, unknown> = {}) {
 // ─── Tool registration capture ───────────────────────────────────────────
 
 function captureTools(registerFn: (server: McpServer, client: OpenCodeClient) => void) {
-  const tools = new Map<string, { description: string; handler: Function }>();
+  const tools = new Map<string, { description: string; schema: unknown; handler: Function }>();
   const mockServer = {
     tool: vi.fn((...args: unknown[]) => {
       // Handle both 4-arg (name, desc, schema, handler) and
       // 5-arg (name, desc, schema, annotations, handler) forms
       const name = args[0] as string;
       const description = args[1] as string;
+      const schema = args[2];
       const handler = args[args.length - 1] as Function;
-      tools.set(name, { description, handler });
+      tools.set(name, { description, schema, handler });
     }),
   } as unknown as McpServer;
   const mockClient = createMockClient();
@@ -100,6 +101,17 @@ describe("Tool registration", () => {
       expect(tools.has("opencode_session_fork")).toBe(true);
       expect(tools.has("opencode_permission_list")).toBe(true);
       expect(tools.has("opencode_session_permission")).toBe(true);
+    });
+  });
+
+  describe("registerMessageTools", () => {
+    it("does not expose unsupported variant parameter on shell execution", () => {
+      const { tools } = captureTools(registerMessageTools);
+      const shell = tools.get("opencode_shell_execute")!;
+      const schema = shell.schema as Record<string, unknown>;
+      expect(schema).toHaveProperty("providerID");
+      expect(schema).toHaveProperty("modelID");
+      expect(schema).not.toHaveProperty("variant");
     });
   });
 
