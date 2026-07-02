@@ -37,6 +37,10 @@ function buildBasicAuthHeader(
 let managedServer: { url: string; close(): void } | null = null;
 let shutdownRegistered = false;
 
+export function resetShutdownRegisteredForTests(): void {
+  shutdownRegistered = false;
+}
+
 /**
  * In-flight startup promises, keyed by normalized `baseUrl`. Serializes
  * concurrent `ensureServer` callers so only one of them invokes
@@ -54,7 +58,7 @@ const startServerInFlight = new Map<
   Promise<{ url: string; version?: string }>
 >();
 
-function registerShutdownHandlers(): void {
+export function registerShutdownHandlers(): void {
   if (shutdownRegistered) return;
   shutdownRegistered = true;
 
@@ -65,15 +69,20 @@ function registerShutdownHandlers(): void {
     }
   };
 
+  const shutdown = () => {
+    cleanup();
+    process.exit(0);
+  };
+
   process.on("exit", cleanup);
-  process.on("SIGINT", () => {
-    cleanup();
-    process.exit(0);
-  });
-  process.on("SIGTERM", () => {
-    cleanup();
-    process.exit(0);
-  });
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+  process.on("SIGHUP", shutdown);
+
+  if (process.stdin) {
+    process.stdin.on("end", shutdown);
+    process.stdin.on("close", shutdown);
+  }
 }
 
 function parseBaseUrl(baseUrl: string): { hostname: string; port: number } {

@@ -29,6 +29,8 @@ import {
   startServer,
   stopServer,
   ensureServer,
+  registerShutdownHandlers,
+  resetShutdownRegisteredForTests,
 } from "../src/server-manager.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -273,6 +275,25 @@ describe("stopServer", () => {
     stopServer();
 
     expect(closeMock).toHaveBeenCalledOnce();
+  });
+});
+
+// ─── registerShutdownHandlers ─────────────────────────────────────────────
+
+describe("registerShutdownHandlers", () => {
+  it("registers listeners for SIGINT, SIGTERM, SIGHUP and STDIN events", () => {
+    resetShutdownRegisteredForTests();
+    const processOnSpy = vi.spyOn(process, "on");
+    const stdinOnSpy = vi.spyOn(process.stdin, "on");
+
+    registerShutdownHandlers();
+
+    expect(processOnSpy).toHaveBeenCalledWith("exit", expect.any(Function));
+    expect(processOnSpy).toHaveBeenCalledWith("SIGINT", expect.any(Function));
+    expect(processOnSpy).toHaveBeenCalledWith("SIGTERM", expect.any(Function));
+    expect(processOnSpy).toHaveBeenCalledWith("SIGHUP", expect.any(Function));
+    expect(stdinOnSpy).toHaveBeenCalledWith("end", expect.any(Function));
+    expect(stdinOnSpy).toHaveBeenCalledWith("close", expect.any(Function));
   });
 });
 
