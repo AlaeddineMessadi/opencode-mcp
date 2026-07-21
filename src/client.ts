@@ -43,6 +43,32 @@ const MAX_RETRIES = 2;
 const BASE_DELAY_MS = 500;
 const MAX_RECONNECT_ATTEMPTS = 3;
 
+/**
+ * Methods that are safe to replay. Per HTTP semantics GET/HEAD/PUT/DELETE are
+ * idempotent; POST and PATCH are not.
+ *
+ * This distinction matters because several OpenCode endpoints create state:
+ * `POST /session` creates a session and `POST /session/:id/message` appends a
+ * prompt. Replaying either one after a network error or an abort duplicates it,
+ * because the request may well have been delivered and be executing server-side
+ * while the client gave up waiting. That is exactly how a single long-running
+ * prompt ends up in a session four times (three loop attempts plus one
+ * reconnect replay).
+ */
+const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "PUT", "DELETE"]);
+
+function isIdempotent(method: string): boolean {
+  return IDEMPOTENT_METHODS.has(method.toUpperCase());
+}
+
+/**
+ * An abort is never safe to replay, even for an idempotent method: the caller's
+ * own deadline expired, so retrying only stacks concurrent work on the server.
+ */
+function isAbortError(e: unknown): boolean {
+  return e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
+}
+
 function isConnectionError(err: Error): boolean {
   const msg = err.message?.toLowerCase() || "";
   return (
@@ -159,7 +185,14 @@ export class OpenCodeClient {
           const status = res.response?.status || 500;
           const bodyStr = typeof res.error === 'string' ? res.error : JSON.stringify(res.error);
           const err = new OpenCodeError(`${method} ${path} failed (${status}): ${bodyStr}`, status, method, path, bodyStr);
-          if (err.isTransient && attempt < MAX_RETRIES) {
+          // A non-idempotent request may only be replayed on statuses that prove
+          // the server rejected it before doing any work. 502/504 come from a
+          // gateway and cannot rule out that the upstream already ran the
+          // request, so replaying them would duplicate a session or a prompt.
+          const replayable = isIdempotent(method)
+            ? err.isTransient
+            : status === 429 || status === 503;
+          if (replayable && attempt < MAX_RETRIES) {
             lastError = err;
             continue;
           }
@@ -173,12 +206,22 @@ export class OpenCodeClient {
       } catch (e) {
         if (e instanceof OpenCodeError) throw e;
         lastError = e as Error;
+        // Network failure or abort: we cannot tell whether the server received
+        // and started the request. Replaying a POST/PATCH here is what duplicates
+        // prompts, and replaying anything after our own abort just piles work on
+        // a server that is still busy with the first attempt.
+        if (isAbortError(e) || !isIdempotent(method)) break;
         if (attempt >= MAX_RETRIES) break;
       }
     }
 
+    // The reconnect path below replays the whole request, retry loop included.
+    // For a non-idempotent method that is a second chance to duplicate work, so
+    // it is limited to methods that are safe to repeat. A dropped POST surfaces
+    // as an error the caller can decide about instead.
     if (
       this.autoServe &&
+      isIdempotent(method) &&
       this.reconnectAttempts < MAX_RECONNECT_ATTEMPTS &&
       lastError &&
       isConnectionError(lastError)
