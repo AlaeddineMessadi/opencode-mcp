@@ -478,3 +478,109 @@ describe.skip("OpenCodeClient HTTP methods (TODO: revive after C1 — HttpTransp
     /* no-op */
   });
 });
+
+/**
+ * Non-idempotent requests must never be replayed.
+ *
+ * `POST /session` creates a session and `POST /session/:id/message` appends a
+ * prompt; both change state. When a long-running prompt made the socket drop or
+ * the caller's own timeout fire, the retry loop plus the reconnect replay sent
+ * the same prompt up to four times, and the OpenCode session ended up with four
+ * copies of it. Retrying stays available for methods that are safe to repeat.
+ */
+describe("idempotency of retries", () => {
+  beforeEach(() => {
+    isServerRunningMock.mockReset();
+    ensureServerMock.mockReset();
+    sdkClientFactory.factories.length = 0;
+  });
+
+  /** Records every call and always fails with a network-style error. */
+  function queueAlwaysFailing(factoryCount: number, calls: string[]) {
+    for (let i = 0; i < factoryCount; i++) {
+      sdkClientFactory.factories.push(() => ({
+        _client: {
+          get: async () => {
+            calls.push("GET");
+            throw new Error("fetch failed");
+          },
+          post: async () => {
+            calls.push("POST");
+            throw new Error("fetch failed");
+          },
+        },
+      }));
+    }
+  }
+
+  it("does not replay a POST after a network error", async () => {
+    const calls: string[] = [];
+    queueAlwaysFailing(3, calls);
+    const client = new OpenCodeClient({ baseUrl: "http://localhost:4096", autoServe: true });
+
+    await expect(client.post("/session/abc/message", { text: "hi" })).rejects.toThrow();
+
+    // Exactly one delivery attempt: no retry loop, no reconnect replay.
+    expect(calls).toEqual(["POST"]);
+    expect(ensureServerMock).not.toHaveBeenCalled();
+  });
+
+  it("still retries a GET after a network error", async () => {
+    const calls: string[] = [];
+    queueAlwaysFailing(3, calls);
+    const client = new OpenCodeClient({ baseUrl: "http://localhost:4096", autoServe: false });
+
+    await expect(client.get("/health")).rejects.toThrow();
+
+    // MAX_RETRIES + 1 attempts — idempotent, so replaying is safe.
+    expect(calls).toEqual(["GET", "GET", "GET"]);
+  });
+
+  it("does not replay a POST when the caller's timeout aborts it", async () => {
+    const calls: string[] = [];
+    sdkClientFactory.factories.push(() => ({
+      _client: {
+        post: async () => {
+          calls.push("POST");
+          const err = new Error("The operation was aborted");
+          err.name = "AbortError";
+          throw err;
+        },
+      },
+    }));
+    const client = new OpenCodeClient({ baseUrl: "http://localhost:4096", autoServe: false });
+
+    await expect(
+      client.post("/session/abc/message", { text: "hi" }, { timeout: 5 }),
+    ).rejects.toThrow();
+
+    expect(calls).toEqual(["POST"]);
+  });
+
+  it("retries a POST on 429 but not on 502", async () => {
+    const mk = (status: number, calls: string[]) => {
+      sdkClientFactory.factories.push(() => ({
+        _client: {
+          post: async () => {
+            calls.push("POST");
+            return { data: undefined, error: "nope", response: { status } };
+          },
+        },
+      }));
+    };
+
+    // 429 means the server rejected before doing work — safe to repeat.
+    const rateLimited: string[] = [];
+    mk(429, rateLimited);
+    const a = new OpenCodeClient({ baseUrl: "http://localhost:4096", autoServe: false });
+    await expect(a.post("/session", {})).rejects.toThrow(OpenCodeError);
+    expect(rateLimited).toEqual(["POST", "POST", "POST"]);
+
+    // 502 comes from a gateway and cannot rule out that the upstream ran it.
+    const badGateway: string[] = [];
+    mk(502, badGateway);
+    const b = new OpenCodeClient({ baseUrl: "http://localhost:4096", autoServe: false });
+    await expect(b.post("/session", {})).rejects.toThrow(OpenCodeError);
+    expect(badGateway).toEqual(["POST"]);
+  });
+});
