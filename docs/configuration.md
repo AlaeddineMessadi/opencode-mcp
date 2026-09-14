@@ -9,7 +9,7 @@ All environment variables are **optional**. You only need to set them if you've 
 | `OPENCODE_BASE_URL` | URL of the OpenCode headless server | `http://127.0.0.1:4096` | No |
 | `OPENCODE_SERVER_USERNAME` | HTTP basic auth username | `opencode` | No |
 | `OPENCODE_SERVER_PASSWORD` | HTTP basic auth password | *(none — auth disabled)* | No |
-| `OPENCODE_AUTO_SERVE` | Auto-start `opencode serve` if not running | `true` | No |
+| `OPENCODE_AUTO_SERVE` | Opt in to starting a separate local `opencode serve` child process | `false` | No |
 | `OPENCODE_DEFAULT_PROVIDER` | Default provider ID when not specified per-tool | *(none)* | No |
 | `OPENCODE_DEFAULT_MODEL` | Default model ID when not specified per-tool | *(none)* | No |
 
@@ -227,12 +227,14 @@ If you prefer manual control, use the permission tools to detect and unblock stu
 
 ## Auto-Start
 
-By default, the MCP server **automatically starts** `opencode serve` if it's not already running. To disable this:
+By default, the MCP server connects to an existing OpenCode server. Start `opencode serve --port 4096` yourself, or start the TUI with `opencode --port 4096` to share its server. Set `OPENCODE_BASE_URL` if using another port.
+
+To explicitly allow MCP to launch a separate local server:
 
 ```json
 {
   "env": {
-    "OPENCODE_AUTO_SERVE": "false"
+    "OPENCODE_AUTO_SERVE": "true"
   }
 }
 ```
@@ -253,3 +255,6 @@ OPENCODE_SERVER_USERNAME=myuser OPENCODE_SERVER_PASSWORD=mypass opencode serve
 ```
 
 The server exposes an OpenAPI 3.1 spec at `http://<host>:<port>/doc`.
+
+
+When other TUI instances are running, prefer a shared, explicitly configured server. Issue #18 reports hangs with a second server sharing the same OpenCode storage. The underlying storage cause has not been confirmed. The MCP does not scan processes or choose an arbitrary TUI instance. Auto-start only supports loopback HTTP endpoints, and only child processes launched by this MCP are stopped on disconnect.

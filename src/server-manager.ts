@@ -127,6 +127,10 @@ export async function startServer(
   baseUrl: string,
   timeoutMs: number = 30000,
 ): Promise<{ url: string; version?: string }> {
+  const target = new URL(baseUrl);
+  if (target.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(target.hostname) || target.pathname !== "/") {
+    throw new Error("Auto-start requires a local loopback HTTP URL without a path prefix. Start remote servers manually and set OPENCODE_BASE_URL.");
+  }
   const { hostname, port } = parseBaseUrl(baseUrl);
 
   console.error(`Starting OpenCode SDK server on ${hostname}:${port}`);
@@ -163,7 +167,7 @@ export async function ensureServer(
   opts: ServerManagerOptions,
 ): Promise<ServerStatus> {
   const baseUrl = opts.baseUrl;
-  const autoServe = opts.autoServe !== false;
+  const autoServe = opts.autoServe === true;
 
   const existing = await isServerRunning(baseUrl, opts.username, opts.password);
   if (existing.healthy) {
@@ -181,7 +185,9 @@ export async function ensureServer(
   if (!autoServe) {
     throw new Error(
       `OpenCode server is not running at ${baseUrl} and OPENCODE_AUTO_SERVE=false.\n` +
-        `Start it manually: opencode serve`,
+        `Start it manually: opencode serve --hostname 127.0.0.1 --port 4096\n` +
+        `Or reuse a TUI started with opencode --port 4096. Set OPENCODE_BASE_URL to its URL.\n` +
+        `Set OPENCODE_AUTO_SERVE=true only to explicitly allow a separate local server.`,
     );
   }
 
