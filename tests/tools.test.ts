@@ -2284,48 +2284,45 @@ describe("Tool handlers", () => {
       return { tools, client: mockClient };
     }
 
-    it("opencode_status returns directory error for non-existent path", async () => {
+    it("opencode_status returns directory error for invalid control bytes", async () => {
       const { tools, client } = setupTools();
       const handler = tools.get("opencode_status")!;
-      const result = await handler({ directory: "/this/does/not/exist/at/all" });
+      const result = await handler({ directory: "/bad\npath" });
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("does not exist");
+      expect(result.content[0].text).toContain("NUL or CR/LF");
       // Should NOT show UNREACHABLE — that was the bug
       expect(result.content[0].text).not.toContain("UNREACHABLE");
       // client.get should never be called
       expect((client as any).get).not.toHaveBeenCalled();
     });
 
-    it("opencode_status returns directory error for relative path", async () => {
+    it("opencode_status rejects header injection", async () => {
       const { tools, client } = setupTools();
       const handler = tools.get("opencode_status")!;
-      // resolve("./relative") produces an absolute path, so this will be
-      // a "does not exist" error rather than "not absolute". That's fine —
-      // the point is we get a clear error, not UNREACHABLE.
-      const result = await handler({ directory: "./nonexistent-dir" });
+      const result = await handler({ directory: "/bad\rpath" });
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("does not exist");
+      expect(result.content[0].text).toContain("NUL or CR/LF");
       expect(result.content[0].text).not.toContain("UNREACHABLE");
     });
 
-    it("opencode_context returns directory error for non-existent path", async () => {
+    it("opencode_context returns directory error for invalid control bytes", async () => {
       const { tools, client } = setupTools();
       const handler = tools.get("opencode_context")!;
-      const result = await handler({ directory: "/no/such/directory" });
+      const result = await handler({ directory: "/bad\npath" });
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("does not exist");
+      expect(result.content[0].text).toContain("NUL or CR/LF");
       expect((client as any).get).not.toHaveBeenCalled();
     });
 
-    it("opencode_check returns directory error for non-existent path", async () => {
+    it("opencode_check returns directory error for invalid control bytes", async () => {
       const { tools, client } = setupTools();
       const handler = tools.get("opencode_check")!;
       const result = await handler({
         sessionId: "test-session-id",
-        directory: "/no/such/directory",
+        directory: "/bad\npath",
       });
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("does not exist");
+      expect(result.content[0].text).toContain("NUL or CR/LF");
       expect((client as any).get).not.toHaveBeenCalled();
     });
 
@@ -2374,5 +2371,17 @@ describe("Issue #20: asynchronous workflow dispatch", () => {
     const result = await tools.get("opencode_fire")!.handler({ prompt: "Task", sessionId: "existing" });
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("dispatch rejected");
+  });
+});
+
+
+describe("Issue #14: remote project directories", () => {
+  it.each(["opencode_status", "opencode_context", "opencode_check"])("%s accepts a server-only path", async (name) => {
+    const { tools, client } = captureTools(registerWorkflowTools);
+    const directory = "/remote-only/project-issue-14";
+    vi.mocked(client.get).mockImplementation(async (path) => path === "/agent" ? [] : {});
+    const result = await tools.get(name)!.handler({ directory, sessionId: "remote-session" });
+    expect(result.isError).toBeUndefined();
+    expect(client.get).toHaveBeenCalledWith(expect.any(String), undefined, directory);
   });
 });

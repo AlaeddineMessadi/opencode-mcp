@@ -188,10 +188,9 @@ describe("normalizeDirectory", () => {
     expect(normalizeDirectory("/tmp/foo/..")).toBe("/tmp");
   });
 
-  it("throws for non-existent directory", () => {
-    expect(() =>
-      normalizeDirectory("/this/absolutely/does/not/exist/xyz123"),
-    ).toThrow("does not exist");
+  it("accepts a remote directory without checking the local disk", () => {
+    expect(normalizeDirectory("/this/absolutely/does/not/exist/xyz123"))
+      .toBe("/this/absolutely/does/not/exist/xyz123");
   });
 });
 
