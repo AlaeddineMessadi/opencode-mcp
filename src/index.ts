@@ -31,7 +31,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { OpenCodeClient } from "./client.js";
-import { ensureServer } from "./server-manager.js";
+import { ensureServer, registerShutdownHandlers } from "./server-manager.js";
 import { setModelDefaults } from "./helpers.js";
 
 // Tool groups
@@ -193,6 +193,9 @@ registerPrompts(server);
 
 // ── Start ───────────────────────────────────────────────────────────
 async function main() {
+  // Step 0: Register process lifecycle & shutdown handlers.
+  registerShutdownHandlers();
+
   // Step 1: Ensure OpenCode server is available (auto-start if needed).
   try {
     await ensureServer({ baseUrl, autoServe, username, password });
