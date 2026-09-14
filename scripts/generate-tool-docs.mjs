@@ -91,7 +91,8 @@ const output = lines.join("\n");
 const destination = fileURLToPath(new URL("../docs/tools.md", import.meta.url));
 if (process.argv.includes("--check")) {
   const current = await readFile(destination, "utf8");
-  if (current !== output) {
+  // Git may check out Markdown with CRLF on Windows; compare logical lines.
+  if (current.replaceAll("\r\n", "\n") !== output) {
     console.error("Tool reference is stale. Run npm run docs:generate and commit docs/tools.md.");
     process.exitCode = 1;
   }
