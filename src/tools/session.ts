@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "../mcp-server.js";
 import { OpenCodeClient } from "../client.js";
 import { toolError, formatSessionList, formatDiffResponse, resolveSessionStatus, toolResult, directoryParam, destructive, readOnly } from "../helpers.js";
 
@@ -51,7 +51,7 @@ export function registerSessionTools(
     async ({ directory }) => {
       try {
         const sessions = (await client.get("/session", undefined, directory)) as Array<Record<string, unknown>>;
-        return toolResult(formatSessionList(sessions));
+        return toolResult(formatSessionList(sessions), false, { data: sessions });
       } catch (e) {
         return toolError(e);
       }
@@ -71,8 +71,9 @@ export function registerSessionTools(
         const body: Record<string, string> = {};
         if (parentID) body.parentID = parentID;
         if (title) body.title = title;
-        const session = await client.post("/session", body, { directory });
-        return toolResult(`Session created.\n\n${formatSession(session)}`);
+        const session = await client.post("/session", body, { directory }) as Record<string, unknown>;
+        if (typeof session?.id !== "string") throw new Error("OpenCode returned a session without an ID");
+        return toolResult(`Session created.\n\n${formatSession(session)}`, false, { sessionId: session.id, session });
       } catch (e) {
         return toolError(e);
       }
@@ -90,7 +91,7 @@ export function registerSessionTools(
     async ({ id, directory }) => {
       try {
         const session = await client.get(`/session/${id}`, undefined, directory);
-        return toolResult(formatSession(session));
+        return toolResult(formatSession(session), false, { data: session });
       } catch (e) {
         return toolError(e);
       }
@@ -171,10 +172,10 @@ export function registerSessionTools(
           : {};
         const entries = Object.entries(statuses);
         if (entries.length === 0) {
-          return toolResult("All sessions idle.");
+          return toolResult("All sessions idle.", false, { data: statuses });
         }
         const lines = entries.map(([id, status]) => `- ${id}: ${resolveSessionStatus(status)}`);
-        return toolResult(`## Session Status (${entries.length})\n${lines.join("\n")}`);
+        return toolResult(`## Session Status (${entries.length})\n${lines.join("\n")}`, false, { data: statuses });
       } catch (e) {
         return toolError(e);
       }
@@ -467,7 +468,7 @@ export function registerSessionTools(
       try {
         const sessions = (await client.get("/session", undefined, directory)) as Array<Record<string, unknown>>;
         if (!sessions || sessions.length === 0) {
-          return toolResult("No sessions found.");
+          return toolResult("No sessions found.", false, { data: [] });
         }
 
         const q = query.toLowerCase();
@@ -478,11 +479,11 @@ export function registerSessionTools(
         });
 
         if (matches.length === 0) {
-          return toolResult(`No sessions matching: "${query}"\n\nTotal sessions: ${sessions.length}. Use \`opencode_session_list\` to see all.`);
+          return toolResult(`No sessions matching: "${query}"\n\nTotal sessions: ${sessions.length}. Use \`opencode_session_list\` to see all.`, false, { data: [] });
         }
 
         return toolResult(
-          `## Sessions matching "${query}" (${matches.length}/${sessions.length})\n${formatSessionList(matches)}`,
+          `## Sessions matching "${query}" (${matches.length}/${sessions.length})\n${formatSessionList(matches)}`, false, { data: matches },
         );
       } catch (e) {
         return toolError(e);

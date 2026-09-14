@@ -23,7 +23,7 @@ function captureResources() {
   const mockServer = {
     resource: vi.fn(
       (name: string, uri: string, _opts: unknown, handler: Function) => {
-        resources.set(name, { uri, handler });
+        if (typeof uri === "string") resources.set(name, { uri, handler });
       },
     ),
   } as unknown as McpServer;

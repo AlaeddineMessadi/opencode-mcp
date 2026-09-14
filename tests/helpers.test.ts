@@ -401,22 +401,22 @@ describe("analyzeMessageResponse", () => {
     expect(result.hasError).toBe(true);
     expect(result.isEmpty).toBe(false);
     expect(result.warning).toContain("Unauthorized");
-    expect(result.warning).toContain("authentication");
+    expect(result.warning).not.toContain("verify your API key");
   });
 
-  it("detects error keywords in text parts", () => {
+  it("does not treat error keywords in prose as tool failure", () => {
     const result = analyzeMessageResponse({
       parts: [{ type: "text", text: "Error: invalid key provided" }],
     });
-    expect(result.hasError).toBe(true);
-    expect(result.warning).toContain("invalid key");
+    expect(result.hasError).toBe(false);
+    expect(result.warning).toBeNull();
   });
 
-  it("detects 'unauthorized' keyword in text", () => {
+  it("preserves explanations of unauthorized requests as content", () => {
     const result = analyzeMessageResponse({
       parts: [{ type: "text", text: "Request unauthorized by provider" }],
     });
-    expect(result.hasError).toBe(true);
+    expect(result.hasError).toBe(false);
   });
 
   it("returns no warning for valid response with text", () => {
@@ -520,9 +520,9 @@ describe("redactSecrets", () => {
     expect(result.db_password).toBe("hunt***REDACTED***");
   });
 
-  it("does not redact short values (<=8 chars)", () => {
+  it("fully redacts short credentials without exposing a prefix", () => {
     const result = redactSecrets({ api_key: "short" }) as Record<string, unknown>;
-    expect(result.api_key).toBe("short");
+    expect(result.api_key).toBe("***REDACTED***");
   });
 
   it("does not redact non-sensitive keys", () => {
@@ -622,9 +622,8 @@ describe("safeStringify", () => {
   it("truncates long strings", () => {
     const big = { data: "x".repeat(100000) };
     const result = safeStringify(big, 100);
-    expect(result.length).toBeLessThan(200);
-    expect(result).toContain("truncated");
-    expect(result).toContain("more characters");
+    expect(result.length).toBeLessThanOrEqual(100);
+    expect(JSON.parse(result)).toMatchObject({ truncated: true, originalLength: JSON.stringify(big, null, 2).length });
   });
 
   it("does not truncate when under limit", () => {
@@ -712,7 +711,7 @@ describe("toolError", () => {
   it("suggests rate limit workaround for 429 errors", () => {
     const result = toolError(new Error("Rate limit exceeded (429)"));
     expect(result.content[0].text).toContain("Suggestions");
-    expect(result.content[0].text).toContain("minimax-m2.1-free");
+    expect(result.content[0].text).toContain("opencode_provider_models");
   });
 
   it("suggests server check for connection errors", () => {

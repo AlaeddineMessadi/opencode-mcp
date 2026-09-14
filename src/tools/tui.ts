@@ -4,7 +4,7 @@
  */
 
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "../mcp-server.js";
 import { OpenCodeClient } from "../client.js";
 import { toolResult, toolError, directoryParam } from "../helpers.js";
 

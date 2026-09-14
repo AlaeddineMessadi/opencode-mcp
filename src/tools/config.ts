@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "../mcp-server.js";
 import { OpenCodeClient } from "../client.js";
 import { toolJson, toolError, toolResult, redactSecrets, safeStringify, directoryParam } from "../helpers.js";
 
@@ -63,7 +63,7 @@ export function registerConfigTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ config, directory }) => {
       try {
-        return toolJson(await client.patch("/config", config, directory));
+        return toolJson(redactSecrets(await client.patch("/config", config, directory)));
       } catch (e) {
         return toolError(e);
       }

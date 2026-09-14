@@ -1,25 +1,56 @@
 # Resources Reference
 
-MCP Resources are browseable data endpoints that clients can read without calling tools. All return `application/json`.
+Resources expose project data through MCP reads. They are independent of tool calls and return valid JSON, including when large data must be shortened. This server does **not** implement resource subscriptions or change notifications; read a resource again to refresh it.
 
-## Available Resources (10)
+## Static Resources
 
-| URI | Description |
+These URIs read the OpenCode server's default project. Reading a project-scoped tool with `directory` does not change their scope.
+
+| URI | Data |
 |---|---|
-| `opencode://project/current` | Current active project (name, path, config) |
-| `opencode://config` | Full OpenCode configuration |
-| `opencode://providers` | All providers, models, and connection status |
-| `opencode://agents` | Available agents with names, modes, descriptions |
-| `opencode://commands` | All slash commands (built-in and custom) |
-| `opencode://health` | Server health and version (`{ "healthy": true, "version": "x.y.z" }`) |
-| `opencode://vcs` | Git info: branch, remote, commit, dirty status |
-| `opencode://sessions` | All sessions with IDs, titles, dates, parent relationships |
-| `opencode://mcp-servers` | Status of all configured MCP servers in OpenCode |
-| `opencode://file-status` | VCS status of tracked files (modified, added, deleted) |
+| `opencode://project/current` | Current project |
+| `opencode://config` | Configuration with sensitive fields redacted |
+| `opencode://providers` | Providers and models with sensitive fields redacted |
+| `opencode://agents` | Available agents |
+| `opencode://commands` | Available commands |
+| `opencode://health` | Server health and version |
+| `opencode://vcs` | Version control information returned by OpenCode |
+| `opencode://sessions` | Sessions in the default project |
+| `opencode://mcp-servers` | Configured MCP server status |
+| `opencode://file-status` | Version control file status |
 
-## How Resources Differ from Tools
+## Project and Session Templates
 
-- **Resources** are read-only data endpoints. Clients can browse and subscribe to them.
-- **Tools** are actions that can read data, create sessions, modify files, etc.
+Use these templates to select a different project without changing server defaults:
 
-For example, `opencode://providers` gives you provider data passively. To actually set an API key, you'd use the `opencode_auth_set` tool.
+| URI template | Data |
+|---|---|
+| `opencode://projects/{directory}/current` | Project metadata |
+| `opencode://projects/{directory}/sessions` | Project sessions |
+| `opencode://projects/{directory}/sessions/{sessionId}` | One session |
+| `opencode://projects/{directory}/sessions/{sessionId}/messages` | Session messages |
+
+Encode the entire absolute server directory as one URI component with `encodeURIComponent`. The server decodes it once and validates it using the same absolute-path rules as project tools. For example:
+
+```javascript
+const directory = encodeURIComponent("/home/user/my-project");
+const uri = `opencode://projects/${directory}/sessions`;
+// opencode://projects/%2Fhome%2Fuser%2Fmy-project/sessions
+```
+
+Windows drive and UNC paths work the same way. Encode `%` characters too; do not repeatedly decode the path or substitute an MCP-host path for a remote server path.
+
+## Large Responses
+
+When serialized data exceeds the response budget, the JSON content is an envelope:
+
+```json
+{
+  "truncated": true,
+  "originalLength": 70000,
+  "omittedCharacters": 20000,
+  "preview": "A prefix of the serialized data..."
+}
+```
+
+The numbers above illustrate the fields. `preview` is a string prefix, not a complete document to parse as JSON. Use narrower project/session resources or tool limits to retrieve manageable data. Reading resources never grants permission to mutate their underlying sessions or project.
