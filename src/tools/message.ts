@@ -104,8 +104,9 @@ export function registerMessageTools(
         const body: Record<string, unknown> = {
           parts: [{ type: "text", text }],
         };
-        const model = applyModelDefaults(providerID, modelID, variant);
+        const model = applyModelDefaults(providerID, modelID);
         if (model) body.model = model;
+        if (variant) body.variant = variant;
         if (agent) body.agent = agent;
         if (noReply !== undefined) body.noReply = noReply;
         if (system) body.system = system;
@@ -155,8 +156,9 @@ export function registerMessageTools(
         const body: Record<string, unknown> = {
           parts: [{ type: "text", text }],
         };
-        const model = applyModelDefaults(providerID, modelID, variant);
+        const model = applyModelDefaults(providerID, modelID);
         if (model) body.model = model;
+        if (variant) body.variant = variant;
         if (agent) body.agent = agent;
         await client.post(`/session/${sessionId}/prompt_async`, body, { directory });
         return toolResult(
@@ -202,8 +204,9 @@ export function registerMessageTools(
           arguments: args ?? "",
         };
         if (agent) body.agent = agent;
-        const cmdModel = applyModelDefaults(providerID, modelID, variant);
+        const cmdModel = applyModelDefaults(providerID, modelID);
         if (cmdModel) body.model = cmdModel;
+        if (variant) body.variant = variant;
         const result = await client.post(
           `/session/${sessionId}/command`,
           body,
@@ -225,13 +228,12 @@ export function registerMessageTools(
       agent: z.string().describe("Agent to use for the shell command"),
       providerID: z.string().optional().describe("Provider ID"),
       modelID: z.string().optional().describe("Model ID"),
-      variant: z.string().optional().describe("Model variant"),
       directory: directoryParam,
     },
-    async ({ sessionId, command, agent, providerID, modelID, variant, directory }) => {
+    async ({ sessionId, command, agent, providerID, modelID, directory }) => {
       try {
         const body: Record<string, unknown> = { command, agent };
-        const shellModel = applyModelDefaults(providerID, modelID, variant);
+        const shellModel = applyModelDefaults(providerID, modelID);
         if (shellModel) body.model = shellModel;
         const result = await client.post(
           `/session/${sessionId}/shell`,

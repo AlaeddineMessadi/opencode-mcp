@@ -28,15 +28,16 @@ function createMockClient(overrides: Record<string, unknown> = {}) {
 // ─── Tool registration capture ───────────────────────────────────────────
 
 function captureTools(registerFn: (server: McpServer, client: OpenCodeClient) => void) {
-  const tools = new Map<string, { description: string; handler: Function }>();
+  const tools = new Map<string, { description: string; schema: unknown; handler: Function }>();
   const mockServer = {
     tool: vi.fn((...args: unknown[]) => {
       // Handle both 4-arg (name, desc, schema, handler) and
       // 5-arg (name, desc, schema, annotations, handler) forms
       const name = args[0] as string;
       const description = args[1] as string;
+      const schema = args[2];
       const handler = args[args.length - 1] as Function;
-      tools.set(name, { description, handler });
+      tools.set(name, { description, schema, handler });
     }),
   } as unknown as McpServer;
   const mockClient = createMockClient();
@@ -100,6 +101,17 @@ describe("Tool registration", () => {
       expect(tools.has("opencode_session_fork")).toBe(true);
       expect(tools.has("opencode_permission_list")).toBe(true);
       expect(tools.has("opencode_session_permission")).toBe(true);
+    });
+  });
+
+  describe("registerMessageTools", () => {
+    it("does not expose unsupported variant parameter on shell execution", () => {
+      const { tools } = captureTools(registerMessageTools);
+      const shell = tools.get("opencode_shell_execute")!;
+      const schema = shell.schema as Record<string, unknown>;
+      expect(schema).toHaveProperty("providerID");
+      expect(schema).toHaveProperty("modelID");
+      expect(schema).not.toHaveProperty("variant");
     });
   });
 
@@ -230,6 +242,19 @@ describe("Tool handlers", () => {
       expect(body.model).toEqual({ providerID: "anthropic", modelID: "claude-3" });
     });
 
+    it("sends variant as a top-level prompt field", async () => {
+      await handler({
+        prompt: "test",
+        providerID: "openai",
+        modelID: "gpt-5.4",
+        variant: "xhigh",
+      });
+      const [, body] = (mockClient.post as ReturnType<typeof vi.fn>).mock.calls[1];
+      expect(body.model).toEqual({ providerID: "openai", modelID: "gpt-5.4" });
+      expect(body.model).not.toHaveProperty("variant");
+      expect(body.variant).toBe("xhigh");
+    });
+
     it("includes agent when set", async () => {
       await handler({ prompt: "test", agent: "build" });
       const [, body] = (mockClient.post as ReturnType<typeof vi.fn>).mock.calls[1];
@@ -334,6 +359,34 @@ describe("Tool handlers", () => {
       const result = await handler({ sessionId: "s1", prompt: "follow up" });
       expect(result.content[0].text).toContain("Sure, here you go");
       expect(result.content[0].text).not.toContain("WARNING");
+    });
+
+    it("sends variant as a top-level field", async () => {
+      const mockClient = createMockClient({
+        post: vi.fn().mockResolvedValueOnce({
+          info: { id: "m2", role: "assistant" },
+          parts: [{ type: "text", text: "Sure" }],
+        }),
+      });
+      const tools = new Map<string, Function>();
+      const mockServer = {
+        tool: vi.fn((...args: unknown[]) => {
+          tools.set(args[0] as string, args[args.length - 1] as Function);
+        }),
+      } as unknown as McpServer;
+      registerWorkflowTools(mockServer, mockClient);
+      const handler = tools.get("opencode_reply")!;
+      await handler({
+        sessionId: "s1",
+        prompt: "follow up",
+        providerID: "openai",
+        modelID: "gpt-5.4",
+        variant: "low",
+      });
+      const [, body] = (mockClient.post as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(body.model).toEqual({ providerID: "openai", modelID: "gpt-5.4" });
+      expect(body.model).not.toHaveProperty("variant");
+      expect(body.variant).toBe("low");
     });
   });
 
@@ -1154,6 +1207,35 @@ describe("Tool handlers", () => {
       const result = await handler({ sessionId: "s1", text: "hello" });
       expect(result.content[0].text).toContain("Here is the answer");
       expect(result.content[0].text).not.toContain("WARNING");
+    });
+
+    it("sends variant as a top-level field", async () => {
+      const mockClient = createMockClient({
+        post: vi.fn().mockResolvedValueOnce({
+          info: { id: "m1", role: "assistant" },
+          parts: [{ type: "text", text: "Here is the answer" }],
+        }),
+      });
+      const tools = new Map<string, Function>();
+      const mockServer = {
+        tool: vi.fn((...args: unknown[]) => {
+          tools.set(args[0] as string, args[args.length - 1] as Function);
+        }),
+      } as unknown as McpServer;
+      registerMessageTools(mockServer, mockClient);
+
+      const handler = tools.get("opencode_message_send")!;
+      await handler({
+        sessionId: "s1",
+        text: "hello",
+        providerID: "openai",
+        modelID: "gpt-5.4",
+        variant: "xhigh",
+      });
+      const [, body] = (mockClient.post as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(body.model).toEqual({ providerID: "openai", modelID: "gpt-5.4" });
+      expect(body.model).not.toHaveProperty("variant");
+      expect(body.variant).toBe("xhigh");
     });
 
     it("returns 'Empty response.' when formatted output is empty string", async () => {
