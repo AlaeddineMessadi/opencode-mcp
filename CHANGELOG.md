@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-15
+
+### Breaking changes
+
+- Automatic server startup is now opt-in. To retain the previous behavior, set `OPENCODE_AUTO_SERVE=true` in your MCP client configuration. Otherwise, start OpenCode explicitly with `opencode serve --port 4096` or share a TUI started with `opencode --port 4096`.
+
 ### Changed
 
 - Upgrade `@opencode-ai/sdk` to 1.18.31 and refresh compatible dependencies.
