@@ -156,7 +156,7 @@ const server = new McpServer(
       "",
       "## Important Notes",
       "- ALWAYS specify `providerID` and `modelID` when using `opencode_ask`, `opencode_reply`, `opencode_message_send`, or `opencode_message_send_async`. Without these, the agent may return empty responses. Use providers and models discovered via `opencode_setup` — do NOT hardcode any specific provider. If `OPENCODE_DEFAULT_PROVIDER` and `OPENCODE_DEFAULT_MODEL` env vars are set, they will be used as fallbacks when you don't specify them.",
-      "- The `directory` parameter on every tool targets a specific project. Omit it to use the server's default project. Must be an absolute path to an existing directory — relative paths and non-existent paths are rejected with a helpful error.",
+      "- The `directory` parameter on every tool targets a specific project. Omit it to use the server's default project. Must be an absolute path on the OpenCode server. Relative paths are rejected; OpenCode validates existence.",
       "- Tools marked with `readOnlyHint: true` in their annotations are safe and don't modify state.",
       "- Tools marked with `destructiveHint: true` (`opencode_instance_dispose`, `opencode_session_delete`) permanently delete data — confirm with the user before calling.",
       "- `opencode_wait` sends `notifications/message` progress updates while blocking. If it times out, it returns a progress report instead of failing.",

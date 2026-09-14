@@ -36,7 +36,7 @@ Architectural release. Migrates server lifecycle to the official `@opencode-ai/s
 
 ### Changed
 
-- **Server lifecycle now uses `@opencode-ai/sdk`'s `createOpencodeServer`** (#11) instead of `spawn("opencode serve")`. The HTTP server still runs on a port (default `127.0.0.1:4096`), but it's hosted in-process rather than as a child process. Eliminates zombie processes, port-binding races, and the binary-discovery code path. `OPENCODE_SERVE_ARGS` is now silently ignored (the SDK manages config in-process).
+- **Server lifecycle now uses `@opencode-ai/sdk`'s `createOpencodeServer`** (#11) instead of our direct `spawn("opencode serve")` call. The SDK launches the `opencode` executable as a child process on the configured port. `OPENCODE_SERVE_ARGS` is ignored by this launcher. Correction added during the 1.18.31 compatibility review: the original release notes incorrectly described this as an in-process server.
 - **Reconnect logic rebinds `baseUrl` from `ensureServer()` result** — when the managed server comes up on a different URL than expected, the client rebuilds its SDK instance against the new endpoint before retrying the failed request instead of hammering the dead one.
 - **`reconnectAttempts` budget now resets on successful requests** — previously the counter grew monotonically, so a long-lived client permanently exhausted its auto-heal capacity after three reconnects.
 - **Startup serialization is now keyed by `baseUrl`** — concurrent `ensureServer()` calls targeting different URLs each get their own startup promise. Same-target callers still share one `createOpencodeServer()` invocation.

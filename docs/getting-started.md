@@ -19,7 +19,7 @@ Set up opencode-mcp in under 2 minutes.
 claude mcp add opencode -- npx -y opencode-mcp
 ```
 
-**Claude Desktop / Cursor / Windsurf / Cline / Continue** — add to your MCP config file:
+**Claude Desktop / Cursor / Windsurf / Cline / Continue**: add to your MCP config file:
 
 ```json
 {
@@ -34,11 +34,11 @@ claude mcp add opencode -- npx -y opencode-mcp
 
 See [Configuration](configuration.md) for all client configs (VS Code Copilot, Zed, Amazon Q, OpenCode itself, etc.).
 
-## Step 2: Restart Your Client
+## Step 2: Start OpenCode and Restart Your Client
 
-Restart your MCP client after editing the config. That's it.
+Start `opencode serve --hostname 127.0.0.1 --port 4096`, then restart your MCP client. If you use the TUI, start it with `opencode --port 4096` and share that server instead.
 
-The MCP server **automatically starts** the OpenCode server (`opencode serve`) if it's not already running. No manual server management needed.
+Automatic startup is disabled by default. Set `OPENCODE_AUTO_SERVE=true` only if you want MCP to launch a separate local OpenCode child process.
 
 ## Step 3: Verify
 
@@ -69,7 +69,7 @@ See the full [Tools Reference](tools.md) and [Examples](examples.md).
 
 ### "Connection refused" errors
 
-The OpenCode server is not running and auto-start failed. Try starting it manually:
+The configured OpenCode server is unavailable. Start it manually:
 
 ```bash
 opencode serve
@@ -106,21 +106,21 @@ The OpenCode server has auth enabled. Add credentials:
 - Check that `npx opencode-mcp` runs without errors in a terminal
 - Make sure your MCP client supports tools
 
-### Disable auto-start
+### Opt in to auto-start
 
-If you prefer to manage the OpenCode server yourself:
+To allow MCP to start a local server when none is reachable:
 
 ```json
 {
   "env": {
-    "OPENCODE_AUTO_SERVE": "false"
+    "OPENCODE_AUTO_SERVE": "true"
   }
 }
 ```
 
 ## Next Steps
 
-- [Configuration](configuration.md) — all env vars and client configs
-- [Tools Reference](tools.md) — all 80 tools
-- [Examples](examples.md) — real workflow examples
-- [Prompts](prompts.md) — 6 guided workflow templates
+- [Configuration](configuration.md): all env vars and client configs
+- [Tools Reference](tools.md): all 80 tools
+- [Examples](examples.md): real workflow examples
+- [Prompts](prompts.md): 6 guided workflow templates

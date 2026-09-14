@@ -18,7 +18,7 @@ Thanks for your interest in contributing! This project is open to everyone.
    ```bash
    npm run build
    ```
-5. **Test locally** — start an OpenCode server (`opencode serve`) and run:
+5. **Test locally**: start an OpenCode server (`opencode serve`) and run:
    ```bash
    npm start
    ```
@@ -32,7 +32,9 @@ Thanks for your interest in contributing! This project is open to everyone.
 2. Make your changes in `src/`
 3. Build and verify:
    ```bash
-   npm run build
+   npm test
+   npm audit
+   git diff --check
    ```
 4. Test manually against a running OpenCode server
 5. Commit with a descriptive message:
@@ -45,11 +47,11 @@ Thanks for your interest in contributing! This project is open to everyone.
 
 Use [Conventional Commits](https://www.conventionalcommits.org/):
 
-- `feat:` — new feature
-- `fix:` — bug fix
-- `chore:` — maintenance (deps, config, CI)
-- `docs:` — documentation changes
-- `refactor:` — code restructuring without behavior change
+- `feat:`: new feature
+- `fix:`: bug fix
+- `chore:`: maintenance (deps, config, CI)
+- `docs:`: documentation changes
+- `refactor:`: code restructuring without behavior change
 
 ## What to Contribute
 
@@ -83,8 +85,15 @@ src/
 
 - TypeScript with ES modules (`"type": "module"`)
 - Use the helper functions from `helpers.ts` instead of raw `JSON.stringify`
-- Handle errors gracefully — return `toolError()` instead of throwing
+- Handle errors gracefully: return `toolError()` instead of throwing
 
 ## Questions?
 
 Open an [issue](https://github.com/AlaeddineMessadi/opencode-mcp/issues) for questions, bugs, or feature requests.
+
+
+## Regression Tests
+
+`npm test` builds the CLI and runs unit, HTTP transport and stdio process tests. The automated tests use local fixtures and do not require an OpenCode install or paid model calls. Node.js 22 or newer is recommended for development because Vitest 4 requires it; the published CLI supports Node.js 18 and newer.
+
+Report the OpenCode version, MCP version, client OS, server OS and whether the server is local, remote, or running in WSL. Keep one issue's fix in a focused commit and reference its issue in the PR. Changes to startup defaults or tool parameters should include migration notes.

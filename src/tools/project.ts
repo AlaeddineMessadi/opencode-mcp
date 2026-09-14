@@ -104,7 +104,7 @@ export function registerProjectTools(
 
   server.tool(
     "opencode_project_init",
-    "Initialize or open a project directory to host an independent OpenCode session. Use this to create new empty folders, or to explicitly open preexisting projects on the host machine for parallel code generation workloads.",
+    "Initialize or open a project directory to host an independent OpenCode session. Use this to create new empty folders, or to explicitly open preexisting projects on the MCP host machine for parallel code generation workloads. This tool operates on the local filesystem; create remote server directories separately.",
     {
       path: z
         .string()
