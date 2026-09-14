@@ -71,6 +71,10 @@ beforeEach(() => {
   globalThis.fetch = fetchMock as unknown as typeof fetch;
   consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
   createOpencodeServerMock.mockReset();
+  resetShutdownRegisteredForTests();
+  // Capture lifecycle registration without installing handlers on the test runner.
+  vi.spyOn(process, "on").mockReturnValue(process);
+  vi.spyOn(process.stdin, "on").mockReturnValue(process.stdin);
 });
 
 afterEach(() => {
@@ -294,6 +298,27 @@ describe("registerShutdownHandlers", () => {
     expect(processOnSpy).toHaveBeenCalledWith("SIGHUP", expect.any(Function));
     expect(stdinOnSpy).toHaveBeenCalledWith("end", expect.any(Function));
     expect(stdinOnSpy).toHaveBeenCalledWith("close", expect.any(Function));
+  });
+});
+
+describe("shutdown behavior", () => {
+  it.each(["SIGINT", "SIGTERM", "SIGHUP", "end", "close"])("%s closes the owned server and exits", async (event) => {
+    const close = vi.fn();
+    createOpencodeServerMock.mockResolvedValueOnce({ url: "http://127.0.0.1:4096", close });
+    mockFetchHealthy();
+    await startServer("http://127.0.0.1:4096");
+    const exit = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+    const source = event === "end" || event === "close" ? process.stdin : process;
+    const handler = vi.mocked(source.on).mock.calls.find(([name]) => name === event)![1] as () => void;
+    handler();
+    stopServer();
+    expect(close).toHaveBeenCalledOnce();
+    expect(exit).toHaveBeenCalledWith(0);
+  });
+  it("registers shutdown handlers only once", () => {
+    registerShutdownHandlers();
+    registerShutdownHandlers();
+    expect(vi.mocked(process.on).mock.calls.filter(([name]) => name === "SIGTERM")).toHaveLength(1);
   });
 });
 

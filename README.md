@@ -7,21 +7,29 @@
 
 **Give any MCP client the power of [OpenCode](https://opencode.ai/).**
 
-opencode-mcp is an MCP server that bridges your AI tools (Claude, Cursor, Windsurf, VS Code, etc.) to OpenCode's headless API. It lets your AI delegate real coding work — building features, debugging, refactoring, running tests — to OpenCode sessions that autonomously read, write, and execute code in your project.
+opencode-mcp is an MCP server that bridges your AI tools (Claude, Cursor, Windsurf, VS Code, etc.) to OpenCode's headless API. It lets your AI delegate real coding work: building features, debugging, refactoring, running tests: to OpenCode sessions that autonomously read, write, and execute code in your project.
 
-**80 tools** | **10 resources** | **6 prompts** | **Multi-project** | **Auto-start**
+**80 tools** | **10 resources** | **6 prompts** | **Multi-project** | **Optional auto-start**
 
 ## Why Use This?
 
-- **Delegate coding tasks** — Tell Claude "build me a REST API" and it delegates to OpenCode, which creates files, installs packages, writes tests, and reports back.
-- **Parallel work** — Fire off multiple tasks to OpenCode while your primary AI keeps working on something else.
-- **Any MCP client** — Works with Claude Desktop, Claude Code, Cursor, Windsurf, VS Code Copilot, Cline, Continue, Zed, Amazon Q, and any other MCP-compatible tool.
-- **Zero setup** — The server auto-starts the OpenCode HTTP server in-process via the official `@opencode-ai/sdk` if one isn't already running. No manual steps.
+- **Delegate coding tasks**: Tell Claude "build me a REST API" and it delegates to OpenCode, which creates files, installs packages, writes tests, and reports back.
+- **Parallel work**: Fire off multiple tasks to OpenCode while your primary AI keeps working on something else.
+- **Any MCP client**: Works with Claude Desktop, Claude Code, Cursor, Windsurf, VS Code Copilot, Cline, Continue, Zed, Amazon Q, and any other MCP-compatible tool.
+- **Explicit server control**: Connect to an existing OpenCode server or opt in to launching a local server with `OPENCODE_AUTO_SERVE=true`.
 
 ## Quick Start
 
 > **Prerequisite:** [OpenCode](https://opencode.ai/) must be installed.
 > `curl -fsSL https://opencode.ai/install | bash` or `npm i -g opencode-ai` or `brew install sst/tap/opencode`
+
+Start a server first:
+
+```bash
+opencode serve --hostname 127.0.0.1 --port 4096
+```
+
+If you already use the TUI, start it with `opencode --port 4096` and connect MCP to that same server. For a different port, set `OPENCODE_BASE_URL`.
 
 **Claude Code:**
 
@@ -50,17 +58,17 @@ That's it. Restart your client and OpenCode's tools will be available.
 
 ```
 MCP Client  <--stdio-->  opencode-mcp  <--HTTP-->  OpenCode Server
-(Claude, Cursor, etc.)   (this package)            (in-process via @opencode-ai/sdk,
-                                                    or external opencode serve)
+(Claude, Cursor, etc.)   (this package)            (existing TUI/serve server,
+                                                    or SDK-managed child process)
 ```
 
-Your MCP client calls tools over stdio. This server translates them into HTTP requests to the OpenCode headless API. If no OpenCode server is reachable at `OPENCODE_BASE_URL`, one is started in-process via the official `@opencode-ai/sdk`. The `directory` parameter on every tool routes that request to a specific project via the `x-opencode-directory` header, so a single MCP instance can fan out across many project roots.
+Your MCP client calls tools over stdio. This server translates them into HTTP requests to the OpenCode headless API. By default it connects to the server at `OPENCODE_BASE_URL`. With `OPENCODE_AUTO_SERVE=true`, the official SDK can launch `opencode serve` as a child process on a local loopback address. The `directory` parameter on every tool routes that request to a specific project using the server-side directory scope, so a single MCP instance can fan out across many project roots.
 
 ## Key Tools
 
-The 80 tools are organized into tiers. Start with the workflow tools — they handle the common patterns in a single call.
+The 80 tools are organized into tiers. Start with the workflow tools: they handle the common patterns in a single call.
 
-### Workflow Tools (13) — Start Here
+### Workflow Tools (13): Start Here
 
 | Tool | What it does |
 |---|---|
@@ -115,7 +123,7 @@ opencode_check({ sessionId: "..." })
 
 ### Resources (10)
 
-Browseable data endpoints — your client can read these without tool calls:
+Browseable data endpoints: your client can read these without tool calls:
 
 | URI | Description |
 |---|---|
@@ -152,7 +160,7 @@ opencode_ask({ directory: "/home/user/mobile-app", prompt: "Add navigation" })
 opencode_ask({ directory: "/home/user/web-app", prompt: "Add auth" })
 ```
 
-Use `opencode_project_init` to scaffold a new project directory (or open a preexisting one) before the first call, so the OpenCode server registers it as a project:
+For local servers, use `opencode_project_init` to scaffold a new project directory (or open a preexisting one) before the first call, so the OpenCode server registers it as a project:
 
 ```
 opencode_project_init({ path: "/home/user/new-project" })
@@ -160,6 +168,12 @@ opencode_project_init({ path: "/home/user/new-project" })
 
 opencode_run({ directory: "/home/user/new-project", prompt: "Set up a Vite + React app" })
 ```
+
+For remote servers, create the directory on the server yourself. `opencode_project_init` operates on the MCP host filesystem. Other tools accept absolute server paths, including Windows and WSL paths, without checking the MCP host's disk.
+
+## Compatibility
+
+The current development version uses `@opencode-ai/sdk` 1.18.31 and has been smoke-tested against OpenCode 1.18.31. Older versions have not been revalidated. When upgrading from 1.11.0, start a server explicitly or set `OPENCODE_AUTO_SERVE=true` to retain automatic startup. `OPENCODE_SERVE_ARGS` remains unsupported after the SDK migration; use a manually started server for custom CLI flags.
 
 ## Environment Variables
 
@@ -170,7 +184,7 @@ All optional. Only needed if you've changed defaults on the OpenCode server.
 | `OPENCODE_BASE_URL` | `http://127.0.0.1:4096` | OpenCode server URL |
 | `OPENCODE_SERVER_USERNAME` | `opencode` | HTTP basic auth username |
 | `OPENCODE_SERVER_PASSWORD` | *(none)* | HTTP basic auth password (enables auth when set) |
-| `OPENCODE_AUTO_SERVE` | `true` | Auto-start an in-process OpenCode server (via `@opencode-ai/sdk`) if none is reachable at `OPENCODE_BASE_URL` |
+| `OPENCODE_AUTO_SERVE` | `false` | Opt in to starting a local `opencode serve` child process if the configured server is unavailable |
 | `OPENCODE_DEFAULT_PROVIDER` | *(none)* | Default provider ID when not specified per-tool (e.g. `anthropic`) |
 | `OPENCODE_DEFAULT_MODEL` | *(none)* | Default model ID when not specified per-tool (e.g. `claude-sonnet-4-5`) |
 
@@ -196,13 +210,13 @@ npm run build && node scripts/mcp-smoke-test.mjs
 
 ## Documentation
 
-- [Getting Started](docs/getting-started.md) — step-by-step setup
-- [Configuration](docs/configuration.md) — env vars and all client configs
-- [Tools Reference](docs/tools.md) — all 80 tools in detail
-- [Resources](docs/resources.md) — 10 MCP resources
-- [Prompts](docs/prompts.md) — 6 guided workflow templates
-- [Examples](docs/examples.md) — real workflow examples
-- [Architecture](docs/architecture.md) — system design and data flow
+- [Getting Started](docs/getting-started.md): step-by-step setup
+- [Configuration](docs/configuration.md): env vars and all client configs
+- [Tools Reference](docs/tools.md): all 80 tools in detail
+- [Resources](docs/resources.md): 10 MCP resources
+- [Prompts](docs/prompts.md): 6 guided workflow templates
+- [Examples](docs/examples.md): real workflow examples
+- [Architecture](docs/architecture.md): system design and data flow
 
 ## References
 

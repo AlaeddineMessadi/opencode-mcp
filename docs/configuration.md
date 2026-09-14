@@ -2,13 +2,13 @@
 
 ## Environment Variables
 
-All environment variables are **optional**. You only need to set them if you've changed the defaults on the OpenCode server side.
+All environment variables are **optional**. By default, an OpenCode server must already be running on port 4096.
 
 | Variable | Description | Default | Required |
 |---|---|---|---|
 | `OPENCODE_BASE_URL` | URL of the OpenCode headless server | `http://127.0.0.1:4096` | No |
 | `OPENCODE_SERVER_USERNAME` | HTTP basic auth username | `opencode` | No |
-| `OPENCODE_SERVER_PASSWORD` | HTTP basic auth password | *(none — auth disabled)* | No |
+| `OPENCODE_SERVER_PASSWORD` | HTTP basic auth password | *(none: auth disabled)* | No |
 | `OPENCODE_AUTO_SERVE` | Opt in to starting a separate local `opencode serve` child process | `false` | No |
 | `OPENCODE_DEFAULT_PROVIDER` | Default provider ID when not specified per-tool | *(none)* | No |
 | `OPENCODE_DEFAULT_MODEL` | Default model ID when not specified per-tool | *(none)* | No |
@@ -19,7 +19,7 @@ All environment variables are **optional**. You only need to set them if you've 
 - **Username and password are both optional.** The default username is `opencode`, matching the OpenCode server's default. You only need to set these if you've explicitly enabled auth on the server.
 - **The base URL** should point to where `opencode serve` is listening. If running on the same machine with default settings, you don't need to set this.
 - **Default provider/model** are optional. When set, tools that accept `providerID`/`modelID` will use these as fallbacks when not specified per-call. Both must be set together. Example: `OPENCODE_DEFAULT_PROVIDER=anthropic` + `OPENCODE_DEFAULT_MODEL=claude-sonnet-4-5`.
-- **Directory validation** — The `directory` parameter on all tools must be an absolute path to an existing directory. Relative paths, non-existent paths, and trailing slashes are handled automatically (resolved or rejected with a helpful error).
+- **Directory validation**: `directory` is an absolute path on the OpenCode server. POSIX, Windows drive and UNC paths are preserved on every client OS. Relative paths and NUL/CR/LF bytes are rejected. Existence, permissions and symlinks are resolved by OpenCode. `opencode_project_init` is a local filesystem tool and cannot create directories on a remote server.
 
 ## MCP Client Configurations
 
@@ -86,7 +86,7 @@ claude mcp remove opencode
 }
 ```
 
-### VS Code — GitHub Copilot
+### VS Code: GitHub Copilot
 
 **Config file:** `.vscode/settings.json` or user `settings.json`
 
@@ -241,7 +241,7 @@ To explicitly allow MCP to launch a separate local server:
 
 ## Manual OpenCode Server Setup
 
-If you prefer to manage the server yourself:
+Start a server explicitly:
 
 ```bash
 # Default (no auth, port 4096)
@@ -258,3 +258,5 @@ The server exposes an OpenAPI 3.1 spec at `http://<host>:<port>/doc`.
 
 
 When other TUI instances are running, prefer a shared, explicitly configured server. Issue #18 reports hangs with a second server sharing the same OpenCode storage. The underlying storage cause has not been confirmed. The MCP does not scan processes or choose an arbitrary TUI instance. Auto-start only supports loopback HTTP endpoints, and only child processes launched by this MCP are stopped on disconnect.
+
+`OPENCODE_SERVE_ARGS` is not supported by the SDK launcher. Start OpenCode manually when custom CLI flags are needed.

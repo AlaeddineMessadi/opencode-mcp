@@ -30,13 +30,22 @@ const FORBIDDEN_ROOT_INPUT = [
   "/sys",
   "/proc",
   "/dev",
+  ...(process.platform === "win32"
+    ? [process.env.SystemRoot, process.env.ProgramFiles, process.env["ProgramFiles(x86)"]]
+        .filter((value): value is string => Boolean(value))
+    : []),
 ];
 
+function pathKey(value: string): string {
+  const normalized = pathUtil.resolve(value);
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
 const FORBIDDEN_ROOTS: readonly string[] = (() => {
-  const set = new Set<string>(FORBIDDEN_ROOT_INPUT);
+  const set = new Set<string>(FORBIDDEN_ROOT_INPUT.map(pathKey));
   for (const root of FORBIDDEN_ROOT_INPUT) {
     try {
-      set.add(realpathSync(root));
+      set.add(pathKey(realpathSync.native(root)));
     } catch {
       // Root may not exist on this platform (e.g. /proc on macOS,
       // /sys on Windows). Skip — the lexical form is still blocked.
@@ -46,8 +55,11 @@ const FORBIDDEN_ROOTS: readonly string[] = (() => {
 })();
 
 function isForbiddenRoot(p: string): boolean {
+  const key = pathKey(p);
+  // Reject any drive/share root itself, without blocking all its descendants.
+  if (key === pathKey(pathUtil.parse(p).root)) return true;
   return FORBIDDEN_ROOTS.some(
-    (root) => p === root || p.startsWith(root + pathUtil.sep),
+    (root) => key === root || key.startsWith(root + pathUtil.sep),
   );
 }
 
@@ -104,7 +116,7 @@ export function registerProjectTools(
 
   server.tool(
     "opencode_project_init",
-    "Initialize or open a project directory to host an independent OpenCode session. Use this to create new empty folders, or to explicitly open preexisting projects on the host machine for parallel code generation workloads.",
+    "Initialize or open a project directory to host an independent OpenCode session. Use this to create new empty folders, or to explicitly open preexisting projects on the MCP host machine for parallel code generation workloads. This tool operates on the local filesystem; create remote server directories separately.",
     {
       path: z
         .string()

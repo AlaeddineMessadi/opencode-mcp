@@ -386,12 +386,12 @@ describe("analyzeMessageResponse", () => {
     expect(result.warning).toContain("no text content");
   });
 
-  it("detects response with no text parts as empty", () => {
+  it("recognizes legacy tool-only activity", () => {
     const result = analyzeMessageResponse({
       parts: [{ type: "tool-invocation", toolName: "something" }],
     });
-    expect(result.isEmpty).toBe(true);
-    expect(result.warning).toContain("no text content");
+    expect(result.isEmpty).toBe(false);
+    expect(result.warning).toBeNull();
   });
 
   it("detects error parts with .error field", () => {
@@ -1025,5 +1025,25 @@ describe("Issue #13: cross-platform server paths", () => {
   });
   it.each(["./project", "../project", "~/project", "project", "C:project", "\\project"])("rejects ambiguous path %s", (directory) => {
     expect(() => normalizeDirectory(directory)).toThrow("not an absolute path");
+  });
+});
+
+
+describe("OpenCode 1.18 response formats", () => {
+  const message = { info: { role: "assistant", id: "message" }, parts: [
+    { type: "tool", tool: "bash", state: { status: "completed", input: { command: "pwd" }, output: "/project" } },
+  ] };
+  it("formats current tool parts and does not misdiagnose them as missing credentials", () => {
+    expect(formatMessageResponse(message)).toContain("[Tool: bash] /project");
+    expect(formatMessageList([message])).toContain("bash: pwd");
+    expect(analyzeMessageResponse(message)).toEqual({ isEmpty: false, hasError: false, warning: null });
+  });
+  it("reports errors nested in current tool state", () => {
+    const failed = { parts: [{ type: "tool", tool: "bash", state: { status: "error", error: "command failed" } }] };
+    expect(formatMessageResponse(failed)).toContain("ERROR: command failed");
+    expect(analyzeMessageResponse(failed).hasError).toBe(true);
+  });
+  it("includes the current patch field when formatting session diffs", () => {
+    expect(formatDiffResponse([{ file: "app.ts", patch: "@@ -1 +1 @@\n-old\n+new", additions: 1, deletions: 1 }])).toContain("+new");
   });
 });

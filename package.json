@@ -1,7 +1,7 @@
 {
   "name": "opencode-mcp",
   "version": "1.11.0",
-  "description": "MCP server that wraps the OpenCode AI headless server API — 80 tools, 10 resources, 6 prompts with multi-project support for any MCP client",
+  "description": "MCP server that wraps the OpenCode AI headless server API \u2014 80 tools, 10 resources, 6 prompts with multi-project support for any MCP client",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -15,13 +15,14 @@
   ],
   "scripts": {
     "build": "tsc",
-    "postbuild": "chmod +x dist/index.js",
+    "postbuild": "node -e \"require('node:fs').chmodSync('dist/index.js', 0o755)\"",
     "start": "node dist/index.js",
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "pretest": "npm run build"
   },
   "keywords": [
     "mcp",
@@ -52,7 +53,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
-    "@opencode-ai/sdk": "^1.14.46"
+    "@opencode-ai/sdk": "^1.18.31"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
