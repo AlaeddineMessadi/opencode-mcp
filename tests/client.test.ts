@@ -108,7 +108,7 @@ describe("OpenCodeError", () => {
 
 describe("OpenCodeClient", () => {
   describe("constructor", () => {
-    it("strips trailing slash from baseUrl", () => {
+    it("preserves trailing slash from baseUrl", () => {
       const client = new OpenCodeClient({ baseUrl: "http://localhost:4096/" });
       expect(client.getBaseUrl()).toBe("http://localhost:4096");
     });
@@ -180,12 +180,12 @@ describe("normalizeDirectory", () => {
     expect(normalizeDirectory("/tmp")).toBe("/tmp");
   });
 
-  it("strips trailing slash", () => {
-    expect(normalizeDirectory("/tmp/")).toBe("/tmp");
+  it("preserves trailing slash", () => {
+    expect(normalizeDirectory("/tmp/")).toBe("/tmp/");
   });
 
-  it("resolves '..' segments", () => {
-    expect(normalizeDirectory("/tmp/foo/..")).toBe("/tmp");
+  it("preserves '..' segments", () => {
+    expect(normalizeDirectory("/tmp/foo/..")).toBe("/tmp/foo/..");
   });
 
   it("accepts a remote directory without checking the local disk", () => {
