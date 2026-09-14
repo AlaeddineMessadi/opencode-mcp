@@ -2,8 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { OpenCodeClient } from "../src/client.js";
 import { registerProjectTools } from "../src/tools/project.js";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
-import { realpathSync } from "node:fs";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -60,7 +59,7 @@ describe("opencode_project_init", () => {
     // Realpath the tmp root because /tmp is itself a symlink on macOS and
     // realpath() inside the tool will canonicalize it. Tests assert
     // against the canonical form so they pass on every OS.
-    scratch = realpathSync(await mkdtemp(path.join(tmpdir(), "opencode-init-")));
+    scratch = await realpath(await mkdtemp(path.join(tmpdir(), "opencode-init-")));
   });
 
   afterEach(async () => {
@@ -80,7 +79,7 @@ describe("opencode_project_init", () => {
     const target = path.join(scratch, "new-project");
     const result = await callInit({ path: target });
     expect(result.isError).not.toBe(true);
-    expect(result.content[0].text).toContain(target);
+    expect(result.content[0].text).toContain(await realpath(target));
   });
 
   it("is idempotent on existing directories", async () => {
@@ -126,19 +125,17 @@ describe("opencode_project_init", () => {
     expect(result.content[0].text).toMatch(/System directories are not allowed/);
   });
 
-  // `/var` is deliberately NOT in the deny-list — macOS user-temp paths
-  // live at /var/folders/... and many other /var subtrees are legitimately
-  // user-writable. This test guards against re-adding /var by accident.
-  it("does NOT reject paths under /var (macOS user temp lives there)", async () => {
-    // We don't actually create anything under /var here — the test asserts
-    // that the deny-list does not match, not that the rest of the handler
-    // succeeds. The handler will fail later (mkdir EACCES on system /var),
-    // but the failure must NOT be "System directories are not allowed".
-    const result = await callInit({ path: "/var/folders/test-project" });
-    if (result.isError) {
-      expect(result.content[0].text).not.toMatch(
-        /System directories are not allowed/,
-      );
+  it("allows user temporary directories, including macOS /var/folders", async () => {
+    const result = await callInit({ path: scratch });
+    expect(result.isError).not.toBe(true);
+  });
+
+  it.runIf(process.platform === "win32")("rejects native Windows system paths regardless of case", async () => {
+    const root = process.env.SystemRoot!;
+    for (const value of [root, root.toLowerCase(), path.join(root, "System32", "opencode-test")]) {
+      const result = await callInit({ path: value });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("System directories are not allowed");
     }
   });
 
@@ -150,7 +147,7 @@ describe("opencode_project_init", () => {
     // lexical path inside scratch — which passes the forbidden-roots
     // check — and the OpenCode session would be scoped to /etc.
     const link = path.join(scratch, "evil-link");
-    await symlink("/etc", link);
+    await symlink(process.platform === "win32" ? process.env.SystemRoot! : "/etc", link, process.platform === "win32" ? "junction" : "dir");
 
     const result = await callInit({ path: link });
     expect(result.isError).toBe(true);
@@ -163,12 +160,12 @@ describe("opencode_project_init", () => {
     const realTarget = path.join(scratch, "real-target");
     await mkdir(realTarget);
     const link = path.join(scratch, "safe-link");
-    await symlink(realTarget, link);
+    await symlink(realTarget, link, process.platform === "win32" ? "junction" : "dir");
 
     const result = await callInit({ path: link });
     expect(result.isError).not.toBe(true);
     // The returned path is the canonical (realpath'd) one.
-    expect(result.content[0].text).toContain(realTarget);
+    expect(result.content[0].text).toContain(await realpath(realTarget));
   });
 
   // ── Existing-file collision ────────────────────────────────────────

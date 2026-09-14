@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Normalize local project-init protection checks on Windows, including drive roots, native system directories and case differences.
+
 - Forward model variants at the prompt body top level, and remove the unsupported shell variant option (community PR #15, @AveryanAlex). Slash commands now send their model as a `provider/model` string.
 - Format current OpenCode tool-state and diff-patch responses, and recognize tool-only activity without reporting a false credentials failure.
 - Handle stdin closure and SIGHUP when MCP clients disconnect (community PR #16, @potch8228).
