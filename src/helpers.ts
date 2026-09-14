@@ -126,6 +126,12 @@ export function formatMessageResponse(response: unknown): string {
         case "text":
           sections.push(part.text ?? part.content ?? "");
           break;
+        case "tool": {
+          const state = part.state ?? {};
+          const detail = state.error ?? state.output ?? summarizeToolInput(state.input);
+          sections.push(`[Tool: ${part.tool ?? "unknown"}] ${state.status === "error" ? "ERROR: " : ""}${typeof detail === "string" ? detail : JSON.stringify(detail)}`);
+          break;
+        }
         case "tool-invocation":
         case "tool-result":
           sections.push(
@@ -195,7 +201,7 @@ export function formatMessageList(
         .join("\n");
 
       const toolParts = parts.filter(
-        (p: any) => p.type === "tool-invocation" || p.type === "tool-result",
+        (p: any) => p.type === "tool" || p.type === "tool-invocation" || p.type === "tool-result",
       );
 
       // Extract cost/token metadata from step-finish parts
@@ -211,10 +217,10 @@ export function formatMessageList(
       } else if (toolParts.length > 0) {
         // No text but agent performed actions — show concise tool summaries
         const toolSummaries = toolParts.slice(0, 10).map((p: any) => {
-          const name = p.toolName ?? "unknown";
+          const name = p.tool ?? p.toolName ?? "unknown";
           // Extract the most useful arg (file path, command, etc.)
-          const hint = summarizeToolInput(p.input);
-          const errTag = p.error ? " ERROR" : "";
+          const hint = summarizeToolInput(p.state?.input ?? p.input);
+          const errTag = p.error || p.state?.status === "error" ? " ERROR" : "";
           return `  ${name}${hint ? `: ${hint}` : ""}${errTag}`;
         });
         summary += `Agent performed ${toolParts.length} action(s):\n${toolSummaries.join("\n")}`;
@@ -289,8 +295,9 @@ export function formatDiffResponse(diffs: unknown[]): string {
       const stats = [additions, deletions].filter(Boolean).join(" ");
       let line = `${status} ${path}`;
       if (stats) line += ` (${stats})`;
-      if (typeof diff.diff === "string") {
-        line += `\n${diff.diff}`;
+      const patch = diff.patch ?? diff.diff;
+      if (typeof patch === "string") {
+        line += `\n${patch}`;
       }
       return line;
     })
@@ -364,12 +371,14 @@ export function analyzeMessageResponse(response: unknown): {
   const errorParts = parts.filter(
     (p: any) =>
       p.error ||
+      (p.type === "tool" && p.state?.status === "error") ||
       (p.type === "tool-result" && p.error) ||
       (typeof p.text === "string" && /\b(error|unauthorized|forbidden|invalid.?key)\b/i.test(p.text)),
   );
   if (errorParts.length > 0) {
     const firstError =
       errorParts[0].error ??
+      errorParts[0].state?.error ??
       errorParts[0].text ??
       JSON.stringify(errorParts[0]);
     return {
@@ -388,7 +397,8 @@ export function analyzeMessageResponse(response: unknown): {
     .map((p: any) => (p.text ?? p.content ?? "").trim())
     .join("");
 
-  if (parts.length === 0 || textContent === "") {
+  const hasToolActivity = parts.some((p: any) => ["tool", "tool-invocation", "tool-result"].includes(p.type));
+  if (parts.length === 0 || (textContent === "" && !hasToolActivity)) {
     return {
       isEmpty: true,
       hasError: false,

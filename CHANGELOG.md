@@ -9,10 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Upgrade `@opencode-ai/sdk` to 1.18.31 and refresh compatible dependencies.
+
 - Automatic server startup is now opt-in with `OPENCODE_AUTO_SERVE=true`. By default, connect to an explicitly managed server or a TUI started with `opencode --port 4096`. This prevents MCP from silently launching a second instance alongside existing TUI sessions (#18).
 - Auto-start only supports loopback HTTP endpoints; remote servers must be started on their own host.
 
 ### Fixed
+
+- Forward model variants at the prompt body top level, and remove the unsupported shell variant option (community PR #15, @AveryanAlex). Slash commands now send their model as a `provider/model` string.
+- Format current OpenCode tool-state and diff-patch responses, and recognize tool-only activity without reporting a false credentials failure.
+- Handle stdin closure and SIGHUP when MCP clients disconnect (community PR #16, @potch8228).
 
 - Preserve POSIX, Windows drive and UNC project paths across client/server OS boundaries. Reject ambiguous relative paths instead of resolving against the MCP process (#13).
 

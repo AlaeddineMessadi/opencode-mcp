@@ -205,7 +205,7 @@ export function registerMessageTools(
         };
         if (agent) body.agent = agent;
         const cmdModel = applyModelDefaults(providerID, modelID);
-        if (cmdModel) body.model = cmdModel;
+        if (cmdModel) body.model = `${cmdModel.providerID}/${cmdModel.modelID}`;
         if (variant) body.variant = variant;
         const result = await client.post(
           `/session/${sessionId}/command`,

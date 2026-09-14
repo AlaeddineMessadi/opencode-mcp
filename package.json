@@ -52,7 +52,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
-    "@opencode-ai/sdk": "^1.14.46"
+    "@opencode-ai/sdk": "^1.18.31"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
