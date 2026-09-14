@@ -7,7 +7,7 @@
  */
 
 import { z } from "zod";
-import { isAbsolute, resolve } from "node:path";
+import { posix, win32 } from "node:path";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -79,25 +79,10 @@ export function applyModelDefaults(
 // ── Directory Validation ─────────────────────────────────────────────
 
 /**
- * Normalize and validate a directory path:
- *  - Rejects NUL bytes and CR/LF (defense-in-depth against header injection
- *    when the path is forwarded as `x-opencode-directory`).
- *  - Resolves to absolute (handles "..", ".", trailing slashes, and
- *    converts relative inputs against `process.cwd()`).
- *  - Confirms the resolved path is absolute for the current platform.
- *  - Leaves existence and access checks to the OpenCode server.
- *
- * Accepts both POSIX ("/home/user/my-project") and Windows
- * ("C:\\Users\\me\\my-project", "\\\\server\\share") absolute paths via
- * the platform-aware `resolve` + `isAbsolute` from `node:path`.
- *
- * Note: does NOT resolve symlinks. The OpenCode server is the
- * authoritative consumer of this value and decides how to interpret
- * symlinks; MCP-side deny-list checks (e.g., `opencode_project_init`)
- * apply `realpath` themselves before consulting their own deny-lists.
- *
- * Returns the normalized path, or undefined if input was undefined.
- * Throws a descriptive Error on validation failure.
+ * Validate a server-side absolute path without interpreting it on this host.
+ * POSIX, Windows drive and UNC paths are supported on every client platform.
+ * Preserve separators, symlinks and dot segments for the server to resolve.
+ * Local-only filesystem tools perform their own validation separately.
  */
 export function normalizeDirectory(directory?: string): string | undefined {
   if (!directory) return undefined;
@@ -112,23 +97,15 @@ export function normalizeDirectory(directory?: string): string | undefined {
     );
   }
 
-  // Resolve to an absolute, platform-appropriate form. `resolve` handles
-  // "..", ".", trailing slashes, and will convert a relative input against
-  // `process.cwd()`.
-  const normalized = resolve(directory);
-
-  // Defensive check: `resolve` guarantees an absolute path on every
-  // supported platform, but we verify via the platform-aware `isAbsolute`
-  // so callers get a clear error if that assumption is ever violated.
-  if (!isAbsolute(normalized)) {
+  const windowsAbsolute = win32.isAbsolute(directory) &&
+    (/^[a-z]:[\\/]/i.test(directory) || /^\\\\[^\\]+\\[^\\]+/.test(directory));
+  if (!posix.isAbsolute(directory) && !windowsAbsolute) {
     throw new Error(
       `Invalid directory: "${directory}" is not an absolute path. ` +
-        `Provide a full path like "/home/user/my-project" (POSIX) or ` +
-        `"C:\\\\Users\\\\me\\\\my-project" (Windows).`,
+      `Use an absolute path on the OpenCode server, not a client-relative path.`,
     );
   }
-
-  return normalized;
+  return directory;
 }
 
 /**

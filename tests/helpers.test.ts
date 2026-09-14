@@ -901,20 +901,20 @@ describe("normalizeDirectory", () => {
     expect(result).toBe("/tmp");
   });
 
-  it("removes trailing slashes", () => {
+  it("preserves trailing slashes", () => {
     const result = normalizeDirectory("/tmp/");
-    expect(result).toBe("/tmp");
+    expect(result).toBe("/tmp/");
   });
 
-  it("resolves .. in paths", () => {
+  it("preserves .. for server-side symlink resolution", () => {
     const result = normalizeDirectory("/tmp/foo/..");
-    expect(result).toBe("/tmp");
+    expect(result).toBe("/tmp/foo/..");
   });
 
-  it("resolves . in paths", () => {
+  it("preserves . for server-side resolution", () => {
     // /tmp/. resolves to /tmp, which exists
     const result = normalizeDirectory("/tmp/.");
-    expect(result).toBe("/tmp");
+    expect(result).toBe("/tmp/.");
   });
 
   it("accepts directories that only exist on the server", () => {
@@ -1012,5 +1012,18 @@ describe("toolError diagnoseError enhancements", () => {
     const result = toolError(new Error("Directory not found: \"/bad/path\" does not exist"));
     const text = result.content[0].text;
     expect(text).toContain("absolute path");
+  });
+});
+
+
+describe("Issue #13: cross-platform server paths", () => {
+  it.each([
+    "/mnt/d/Projects/opencode-agent", "/remote/project", "C:\\Users\\me\\project",
+    "D:/Projects/app", "\\\\server\\share\\project",
+  ])("preserves %s on every client OS", (directory) => {
+    expect(normalizeDirectory(directory)).toBe(directory);
+  });
+  it.each(["./project", "../project", "~/project", "project", "C:project", "\\project"])("rejects ambiguous path %s", (directory) => {
+    expect(() => normalizeDirectory(directory)).toThrow("not an absolute path");
   });
 });
