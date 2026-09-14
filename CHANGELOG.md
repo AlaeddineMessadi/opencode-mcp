@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Use the asynchronous prompt endpoint in `opencode_fire` and `opencode_run`, so dispatch does not wait for inference before returning or polling (#20).
+
 ## [1.11.0] - 2026-05-19
 
 Architectural release. Migrates server lifecycle to the official `@opencode-ai/sdk`, adds a tool for parallel project initialization, and lands a substantial security/correctness pass on the HTTP and SSE layers.

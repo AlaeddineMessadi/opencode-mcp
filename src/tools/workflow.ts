@@ -696,7 +696,7 @@ export function registerWorkflowTools(
         if (variant) body.variant = variant;
         if (agent) body.agent = agent;
 
-        await client.post(`/session/${sid}/message`, body, { directory });
+        await client.post(`/session/${sid}/prompt_async`, body, { directory });
 
         // Session-directory consistency note
         const dirNote = sessionId && directory
@@ -811,7 +811,7 @@ export function registerWorkflowTools(
         if (variant) body.variant = variant;
         if (agent) body.agent = agent;
 
-        await client.post(`/session/${sid}/message`, body, { directory });
+        await client.post(`/session/${sid}/prompt_async`, body, { directory });
 
         const dirLabel = directory ? `Directory: ${directory}\n` : "";
         return toolResult(

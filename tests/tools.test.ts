@@ -2345,3 +2345,34 @@ describe("Tool handlers", () => {
     });
   });
 });
+
+
+describe("Issue #20: asynchronous workflow dispatch", () => {
+  it.each(["opencode_fire", "opencode_run"])("%s dispatches without waiting for inference", async (name) => {
+    const { tools, client } = captureTools(registerWorkflowTools);
+    vi.mocked(client.post).mockImplementation(async (path) => {
+      if (path === "/session") return { id: "async-session" };
+      if (path === "/session/async-session/prompt_async") return undefined;
+      throw new Error(`Unexpected blocking request: ${path}`);
+    });
+    const result = await tools.get(name)!.handler({
+      prompt: "Long task", directory: "/tmp", providerID: "test", modelID: "model",
+      variant: "high", agent: "build", maxDurationSeconds: 0,
+    });
+    expect(result.isError).toBe(name === "opencode_run" ? true : undefined);
+    expect(result.content[0].text).toContain(name === "opencode_run" ? "still running" : "Task dispatched");
+    expect(result.content[0].text).toContain("async-session");
+    expect(client.post).toHaveBeenLastCalledWith("/session/async-session/prompt_async", {
+      parts: [{ type: "text", text: "Long task" }], noReply: false,
+      model: { providerID: "test", modelID: "model" }, variant: "high", agent: "build",
+    }, { directory: "/tmp" });
+  });
+
+  it("reports dispatch failures rather than claiming a task is running", async () => {
+    const { tools, client } = captureTools(registerWorkflowTools);
+    vi.mocked(client.post).mockRejectedValue(new Error("dispatch rejected"));
+    const result = await tools.get("opencode_fire")!.handler({ prompt: "Task", sessionId: "existing" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("dispatch rejected");
+  });
+});
