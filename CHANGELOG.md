@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Automatic server startup is now opt-in with `OPENCODE_AUTO_SERVE=true`. By default, connect to an explicitly managed server or a TUI started with `opencode --port 4096`. This prevents MCP from silently launching a second instance alongside existing TUI sessions (#18).
+- Auto-start only supports loopback HTTP endpoints; remote servers must be started on their own host.
+
 ### Fixed
 
 - Preserve POSIX, Windows drive and UNC project paths across client/server OS boundaries. Reject ambiguous relative paths instead of resolving against the MCP process (#13).

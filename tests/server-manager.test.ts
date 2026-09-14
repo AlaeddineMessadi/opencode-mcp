@@ -188,16 +188,16 @@ describe("startServer", () => {
 
   it("parses custom hostname and port from baseUrl", async () => {
     createOpencodeServerMock.mockResolvedValueOnce({
-      url: "http://192.168.1.100:5000",
+      url: "http://localhost:5000",
       close: vi.fn(),
     });
     mockFetchHealthy("1.14.46");
 
-    await startServer("http://192.168.1.100:5000", 5000);
+    await startServer("http://localhost:5000", 5000);
 
     expect(createOpencodeServerMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        hostname: "192.168.1.100",
+        hostname: "localhost",
         port: 5000,
       }),
     );
@@ -205,12 +205,12 @@ describe("startServer", () => {
 
   it("falls back to port 4096 when baseUrl omits port", async () => {
     createOpencodeServerMock.mockResolvedValueOnce({
-      url: "http://example.com:4096",
+      url: "http://localhost:4096",
       close: vi.fn(),
     });
     mockFetchHealthy("1.14.46");
 
-    await startServer("http://example.com", 5000);
+    await startServer("http://localhost", 5000);
 
     expect(createOpencodeServerMock).toHaveBeenCalledWith(
       expect.objectContaining({ port: 4096 }),
@@ -303,7 +303,7 @@ describe("ensureServer", () => {
   it("returns immediately when server is already running", async () => {
     mockFetchHealthy("1.14.46");
 
-    const result = await ensureServer({ baseUrl: "http://127.0.0.1:4096" });
+    const result = await ensureServer({ baseUrl: "http://127.0.0.1:4096", autoServe: true });
 
     expect(result).toEqual({
       running: true,
@@ -317,7 +317,7 @@ describe("ensureServer", () => {
     );
   });
 
-  it("starts the server when not running and autoServe is true (default)", async () => {
+  it("starts the server when not running and autoServe is explicitly true", async () => {
     mockFetchDown(); // initial probe fails
     createOpencodeServerMock.mockResolvedValueOnce({
       url: "http://127.0.0.1:4096",
@@ -325,7 +325,7 @@ describe("ensureServer", () => {
     });
     mockFetchHealthy("1.14.46"); // post-start probe
 
-    const result = await ensureServer({ baseUrl: "http://127.0.0.1:4096" });
+    const result = await ensureServer({ baseUrl: "http://127.0.0.1:4096", autoServe: true });
 
     expect(result).toEqual({
       running: true,
@@ -353,7 +353,7 @@ describe("ensureServer", () => {
     createOpencodeServerMock.mockRejectedValueOnce(new Error("EADDRINUSE"));
 
     await expect(
-      ensureServer({ baseUrl: "http://127.0.0.1:4096" }),
+      ensureServer({ baseUrl: "http://127.0.0.1:4096", autoServe: true }),
     ).rejects.toThrow("EADDRINUSE");
   });
 
@@ -391,13 +391,13 @@ describe("ensureServer", () => {
 
     const [a, b] = await Promise.all([
       (async () => {
-        const p = ensureServer({ baseUrl: "http://127.0.0.1:4096" });
+        const p = ensureServer({ baseUrl: "http://127.0.0.1:4096", autoServe: true });
         // Resolve after both callers have queued, so both observe the
         // in-flight promise rather than racing into a second start.
         resolveStart({ url: "http://127.0.0.1:4096", close: vi.fn() });
         return p;
       })(),
-      ensureServer({ baseUrl: "http://127.0.0.1:4096" }),
+      ensureServer({ baseUrl: "http://127.0.0.1:4096", autoServe: true }),
     ]);
 
     expect(createOpencodeServerMock).toHaveBeenCalledOnce();
@@ -429,12 +429,31 @@ describe("ensureServer", () => {
     mockFetchHealthy("1.14.46");
 
     const [a, b] = await Promise.all([
-      ensureServer({ baseUrl: "http://127.0.0.1:4096" }),
-      ensureServer({ baseUrl: "http://127.0.0.1:5000" }),
+      ensureServer({ baseUrl: "http://127.0.0.1:4096", autoServe: true }),
+      ensureServer({ baseUrl: "http://127.0.0.1:5000", autoServe: true }),
     ]);
 
     expect(createOpencodeServerMock).toHaveBeenCalledTimes(2);
     expect(a.url).toBe("http://127.0.0.1:4096");
     expect(b.url).toBe("http://127.0.0.1:5000");
+  });
+});
+
+
+describe("Issue #18: explicit server ownership", () => {
+  it("does not spawn a second server by default", async () => {
+    mockFetchDown();
+    await expect(ensureServer({ baseUrl: "http://127.0.0.1:4096" })).rejects.toThrow("OPENCODE_AUTO_SERVE=false");
+    expect(createOpencodeServerMock).not.toHaveBeenCalled();
+  });
+  it("attaches to an existing TUI server without opting into startup", async () => {
+    mockFetchHealthy();
+    expect((await ensureServer({ baseUrl: "http://127.0.0.1:4096" })).managedByUs).toBe(false);
+    expect(createOpencodeServerMock).not.toHaveBeenCalled();
+  });
+  it.each(["http://remote.example:4096", "https://localhost:4096", "http://localhost:4096/proxy"])("never tries to spawn for %s", async (baseUrl) => {
+    mockFetchDown();
+    await expect(ensureServer({ baseUrl, autoServe: true })).rejects.toThrow("local loopback HTTP URL");
+    expect(createOpencodeServerMock).not.toHaveBeenCalled();
   });
 });

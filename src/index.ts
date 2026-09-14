@@ -23,7 +23,7 @@
  *   OPENCODE_BASE_URL        - Base URL of the OpenCode server (default: http://127.0.0.1:4096)
  *   OPENCODE_SERVER_USERNAME  - Username for HTTP basic auth (default: opencode)
  *   OPENCODE_SERVER_PASSWORD  - Password for HTTP basic auth (optional)
- *   OPENCODE_AUTO_SERVE       - Set to "false" to disable auto-start (default: true)
+ *   OPENCODE_AUTO_SERVE       - Set to "true" to enable auto-start (default: false)
  *   OPENCODE_DEFAULT_PROVIDER - Default provider ID when not specified per-tool (optional)
  *   OPENCODE_DEFAULT_MODEL    - Default model ID when not specified per-tool (optional)
  */
@@ -55,7 +55,7 @@ const baseUrl =
   process.env.OPENCODE_BASE_URL ?? "http://127.0.0.1:4096";
 const username = process.env.OPENCODE_SERVER_USERNAME;
 const password = process.env.OPENCODE_SERVER_PASSWORD;
-const autoServe = process.env.OPENCODE_AUTO_SERVE !== "false";
+const autoServe = process.env.OPENCODE_AUTO_SERVE === "true";
 const defaultProvider = process.env.OPENCODE_DEFAULT_PROVIDER;
 const defaultModel = process.env.OPENCODE_DEFAULT_MODEL;
 
