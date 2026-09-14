@@ -1,6 +1,6 @@
 {
   "name": "opencode-mcp",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "MCP server that wraps the OpenCode AI headless server API \u2014 80 tools, 10 resources, 6 prompts with multi-project support for any MCP client",
   "type": "module",
   "main": "dist/index.js",
@@ -56,7 +56,7 @@
     "@opencode-ai/sdk": "^1.18.31"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^22.0.1",
     "typescript": "^5.7.0",
     "vitest": "^4.0.18"
   }
