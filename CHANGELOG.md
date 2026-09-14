@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Let OpenCode validate project directory existence on its own machine, enabling remote servers and containers (#14).
+
 - Use the asynchronous prompt endpoint in `opencode_fire` and `opencode_run`, so dispatch does not wait for inference before returning or polling (#20).
 
 ## [1.11.0] - 2026-05-19

@@ -917,9 +917,9 @@ describe("normalizeDirectory", () => {
     expect(result).toBe("/tmp");
   });
 
-  it("throws for non-existent directory", () => {
-    expect(() => normalizeDirectory("/this/path/absolutely/does/not/exist/xyz123"))
-      .toThrow("does not exist");
+  it("accepts directories that only exist on the server", () => {
+    expect(normalizeDirectory("/this/path/absolutely/does/not/exist/xyz123"))
+      .toBe("/this/path/absolutely/does/not/exist/xyz123");
   });
 
   it("accepts a known existing directory", () => {

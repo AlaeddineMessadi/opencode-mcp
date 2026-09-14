@@ -7,7 +7,6 @@
  */
 
 import { z } from "zod";
-import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -86,7 +85,7 @@ export function applyModelDefaults(
  *  - Resolves to absolute (handles "..", ".", trailing slashes, and
  *    converts relative inputs against `process.cwd()`).
  *  - Confirms the resolved path is absolute for the current platform.
- *  - Validates that the path exists on disk.
+ *  - Leaves existence and access checks to the OpenCode server.
  *
  * Accepts both POSIX ("/home/user/my-project") and Windows
  * ("C:\\Users\\me\\my-project", "\\\\server\\share") absolute paths via
@@ -126,14 +125,6 @@ export function normalizeDirectory(directory?: string): string | undefined {
       `Invalid directory: "${directory}" is not an absolute path. ` +
         `Provide a full path like "/home/user/my-project" (POSIX) or ` +
         `"C:\\\\Users\\\\me\\\\my-project" (Windows).`,
-    );
-  }
-
-  // Must exist on disk
-  if (!existsSync(normalized)) {
-    throw new Error(
-      `Directory not found: "${normalized}" does not exist. ` +
-        `Check the path and try again.`,
     );
   }
 
