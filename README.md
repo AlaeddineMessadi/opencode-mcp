@@ -173,7 +173,7 @@ For remote servers, create the directory on the server yourself. `opencode_proje
 
 ## Compatibility
 
-Version 2.0.0 uses `@opencode-ai/sdk` 1.18.31 and has been smoke-tested against OpenCode 1.18.31. Older versions have not been revalidated. When upgrading from 1.x, start a server explicitly or set `OPENCODE_AUTO_SERVE=true` to retain automatic startup. `OPENCODE_SERVE_ARGS` remains unsupported after the SDK migration; use a manually started server for custom CLI flags.
+Version 2.0.1 uses `@opencode-ai/sdk` 1.18.31 and has been smoke-tested against OpenCode 1.18.31. Older versions have not been revalidated. When upgrading from 1.x, start a server explicitly or set `OPENCODE_AUTO_SERVE=true` to retain automatic startup. `OPENCODE_SERVE_ARGS` remains unsupported after the SDK migration; use a manually started server for custom CLI flags.
 
 ## Environment Variables
 
