@@ -109,6 +109,16 @@ opencode_run({
 
 `format` is forwarded to OpenCode. `{type: "text"}` requests ordinary text. Model-generated structured output and MCP `structuredContent` serve different purposes: the former shapes the model's answer; the latter carries the tool's machine-readable status and result fields.
 
+OpenCode produces the answer by calling its `StructuredOutput` tool. If the project's permission policy denies all tools, explicitly allow this tool in `opencode.json`:
+
+```json
+{ "permission": { "*": "deny", "StructuredOutput": "allow" } }
+```
+
+This policy is suitable for an output-only task. Add permissions for the reads or edits your task needs. The MCP does not change permissions automatically. Denying `StructuredOutput` can leave a JSON-schema prompt running without producing an answer; an observation timeout does not stop inference. Explicitly abort an owned session when abandoning a run.
+
+OpenCode 1.18.31 can return HTTP 400 when reading history containing a persisted response format. When a job/message ID is known, async observation retries a read of only the latest message and accepts a completed answer only if its parent matches that ID. If it cannot prove completion, it reports `unknown` and does not expose pending inputs from incomplete history. Keep polling the same job rather than resubmitting. Full history and cancellation ownership checks can still fail on the upstream serialization error; use the low-level session abort only after confirming that you own its current work.
+
 ## Independent Projects and Parallel Work
 
 ```javascript

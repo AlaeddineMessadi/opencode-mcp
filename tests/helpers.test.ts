@@ -21,6 +21,18 @@ import {
 // ─── formatMessageResponse ───────────────────────────────────────────────
 
 describe("formatMessageResponse", () => {
+  it("shows validated JSON instead of the StructuredOutput receipt", () => {
+    const message = {
+      info: { role: "assistant", structured: { status: "ok", sum: 42 } },
+      parts: [
+        { type: "tool", tool: "StructuredOutput", state: { status: "completed", output: "Structured output captured successfully." } },
+        { type: "step-finish", cost: 0, tokens: { output: 23 } },
+      ],
+    };
+    expect(JSON.parse(formatMessageResponse(message))).toEqual({ status: "ok", sum: 42 });
+    expect(formatMessageList([message])).toContain('"sum": 42');
+    expect(formatMessageList([message])).not.toContain("Agent performed");
+  });
   it("returns empty string for null/undefined input", () => {
     expect(formatMessageResponse(null)).toBe("");
     expect(formatMessageResponse(undefined)).toBe("");

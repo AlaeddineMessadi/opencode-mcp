@@ -49,6 +49,71 @@ function backend() {
 }
 async function namespace() { return join(root, (await readdir(root))[0]); }
 
+describe("OpenCode structured-output observation", () => {
+  const formatError = () => new OpenCodeError("Cannot encode format", 400, "GET", "/session/session/message",
+    JSON.stringify({ name: "BadRequest", data: { kind: "Body", message: 'Expected OutputFormatJsonSchema, got {"type":"json_schema"}\n  at [0]["info"]["format"]' } }));
+  const result = (parentID = "target", structured: unknown = { sum: 42 }) => ({
+    info: { id: "assistant", parentID, role: "assistant", structured, finish: "tool-calls", time: { created: 2, completed: 3 } },
+    parts: [{ type: "tool", tool: "StructuredOutput", state: { status: "completed", output: "Structured output captured successfully." } }],
+  });
+  function brokenHistory(latest: unknown[] | Error) {
+    const fixture = backend();
+    const get = fixture.get.getMockImplementation()!;
+    fixture.get.mockImplementation(async (path: string, ...args: any[]) => {
+      if (path.endsWith("/message")) {
+        if (args[0]?.limit !== "1") throw formatError();
+        if (latest instanceof Error) throw latest;
+        return latest;
+      }
+      return get(path);
+    });
+    return fixture;
+  }
+
+  it("recognizes a final StructuredOutput tool call with complete history", async () => {
+    const fixture = backend();
+    fixture.setMessages([{ info: { role: "user", id: "target", time: { created: 1 } } }, result()]);
+    expect(await observeSession(fixture.client, "session", undefined, "target")).toMatchObject({ status: "completed", result: { sum: 42 } });
+  });
+
+  it("recovers the correlated result through a bounded read without resubmitting", async () => {
+    const fixture = brokenHistory([result()]);
+    const observed = await observeSession(fixture.client, "session", "/remote/project", "target");
+    expect(observed).toMatchObject({ status: "completed", result: { sum: 42 } });
+    expect(JSON.parse(observed.text!)).toEqual({ sum: 42 });
+    expect(fixture.get).toHaveBeenCalledWith("/session/session/message", { limit: "1" }, "/remote/project", expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(fixture.post).not.toHaveBeenCalled();
+  });
+
+  it.each([[], [result("another-turn")], formatError()].map(latest => ({ latest })))("keeps incomplete or unrelated history unknown ($latest)", async ({ latest }) => {
+    const fixture = brokenHistory(latest);
+    fixture.setQuestions([{ id: "unrelated", sessionID: "session" }]);
+    const observed = await observeSession(fixture.client, "session", undefined, "target");
+    expect(observed).toMatchObject({ status: "unknown", inputs: [], error: { name: "MessageHistoryUnavailable" } });
+    expect(fixture.get).not.toHaveBeenCalledWith("/question", expect.anything(), expect.anything(), expect.anything());
+  });
+
+  it("does not claim completion while OpenCode is still busy", async () => {
+    const fixture = brokenHistory([result()]);
+    fixture.setStatus("busy");
+    expect((await observeSession(fixture.client, "session", undefined, "target")).status).toBe("unknown");
+  });
+
+  it("does not infer a target from partial history", async () => {
+    const fixture = brokenHistory([result()]);
+    await expect(observeSession(fixture.client, "session")).rejects.toThrow("Cannot encode format");
+    expect(fixture.get.mock.calls.filter(([path]) => path.endsWith("/message"))).toHaveLength(1);
+  });
+
+  it("preserves unrelated errors from either read", async () => {
+    const denied = new OpenCodeError("Forbidden", 403, "GET", "/session/session/message", "{}");
+    const fixture = brokenHistory(denied);
+    await expect(observeSession(fixture.client, "session", undefined, "target")).rejects.toBe(denied);
+    fixture.get.mockRejectedValue(denied);
+    await expect(observeSession(fixture.client, "session", undefined, "target")).rejects.toBe(denied);
+  });
+});
+
 it("persists ownership before dispatch, with safe file modes and no prompt", async () => {
   const fixture = backend();
   const original = fixture.post.getMockImplementation()!;

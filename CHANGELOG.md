@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Recognize completed JSON-schema tool responses, show the validated JSON in readable output, and recover correlated async results from OpenCode 1.18.31 response-format history serialization failures. Document the required `StructuredOutput` permission.
 - Correlate async observation with submitted work and report accepted, running, input-required, completed, failed, cancelled, and unknown states accurately. Observation timeouts preserve progress and do not imply cancellation.
 - Preserve request deadlines and cancellation, avoid unsafe automatic mutation retries, and scope event streams to the requested project.
 - Redact sensitive configuration/provider fields and preserve valid JSON when responses are truncated.

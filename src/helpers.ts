@@ -42,7 +42,7 @@ export const outputFormatParam = z.discriminatedUnion("type", [
     schema: z.record(z.string(), z.unknown()),
     retryCount: z.number().int().nonnegative().optional(),
   }),
-]).optional().describe("Response format: plain text or JSON constrained by a JSON Schema.");
+]).optional().describe("Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool.");
 
 // ── Default Provider/Model ────────────────────────────────────────────
 
@@ -125,6 +125,9 @@ export function normalizeDirectory(directory?: string): string | undefined {
  */
 export function formatMessageResponse(response: unknown): string {
   const r = response as any;
+  // StructuredOutput is a tool call whose generic acknowledgement is not the
+  // answer. Prefer the validated value over tool receipts and token metadata.
+  if (r?.info?.structured !== undefined) return safeStringify(r.info.structured);
   const sections: string[] = [];
 
   // Omit verbose message header for cleaner output; the caller (opencode_ask etc.)
@@ -181,9 +184,6 @@ export function formatMessageResponse(response: unknown): string {
     }
   }
 
-  if (sections.length === 0 && r?.info?.structured !== undefined) {
-    return safeStringify(r.info.structured);
-  }
   return sections.join("\n\n");
 }
 
@@ -222,7 +222,9 @@ export function formatMessageList(
 
       let summary = `--- Message ${i + 1} [${role}] (${id}) ---\n`;
 
-      if (textParts) {
+      if (msg?.info?.structured !== undefined) {
+        summary += safeStringify(msg.info.structured);
+      } else if (textParts) {
         summary += textParts;
         if (toolParts.length > 0) {
           summary += `\n[${toolParts.length} tool call(s)]`;

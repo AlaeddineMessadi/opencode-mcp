@@ -53,7 +53,7 @@ Ask OpenCode a question in one step. Creates a new session, sends your prompt, a
 | `variant` | string | no | Model variant (e.g. 'fast', 'smart') |
 | `agent` | string | no | Agent to use (e.g. 'build', 'plan') |
 | `system` | string | no | Optional system prompt override |
-| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. |
+| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool. |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
 
 #### Structured output
@@ -102,7 +102,7 @@ Ask OpenCode a question in one step. Creates a new session, sends your prompt, a
         "type": "string"
       },
       "format": {
-        "description": "Response format: plain text or JSON constrained by a JSON Schema.",
+        "description": "Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool.",
         "oneOf": [
           {
             "type": "object",
@@ -446,7 +446,7 @@ Dispatch a durable background task and return its job, session and message IDs i
 | `variant` | string | no | Model variant |
 | `agent` | string | no | OpenCode agent name |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
-| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. |
+| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool. |
 
 #### Structured output
 
@@ -505,7 +505,7 @@ Dispatch a durable background task and return its job, session and message IDs i
         "type": "string"
       },
       "format": {
-        "description": "Response format: plain text or JSON constrained by a JSON Schema.",
+        "description": "Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool.",
         "oneOf": [
           {
             "type": "object",
@@ -618,7 +618,7 @@ Quick-test whether a provider is working. Creates a temporary session, sends a t
 | `providerId` | string | yes | Provider ID to test (e.g. 'anthropic', 'openrouter') |
 | `modelID` | string | no | Specific model ID to test. If omitted, discovers the provider default or first available model. |
 | `variant` | string | no | Model variant |
-| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. |
+| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool. |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
 
 #### Structured output
@@ -651,7 +651,7 @@ Quick-test whether a provider is working. Creates a temporary session, sends a t
         "type": "string"
       },
       "format": {
-        "description": "Response format: plain text or JSON constrained by a JSON Schema.",
+        "description": "Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool.",
         "oneOf": [
           {
             "type": "object",
@@ -745,7 +745,7 @@ Send a follow-up message to an existing session. Use this to continue a conversa
 | `modelID` | string | no | Model ID |
 | `variant` | string | no | Model variant |
 | `agent` | string | no | Agent to use |
-| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. |
+| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool. |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
 
 #### Structured output
@@ -790,7 +790,7 @@ Send a follow-up message to an existing session. Use this to continue a conversa
         "type": "string"
       },
       "format": {
-        "description": "Response format: plain text or JSON constrained by a JSON Schema.",
+        "description": "Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool.",
         "oneOf": [
           {
             "type": "object",
@@ -961,7 +961,7 @@ Send a task and wait for its correlated response. Returns a durable job ID; an o
 | `variant` | string | no | Model variant |
 | `agent` | string | no | OpenCode agent name |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
-| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. |
+| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool. |
 | `maxDurationSeconds` | number | no | Maximum observation duration in seconds (default 600); timeout does not abort the job; maximum: 3600 |
 
 #### Structured output
@@ -1021,7 +1021,7 @@ Send a task and wait for its correlated response. Returns a durable job ID; an o
         "type": "string"
       },
       "format": {
-        "description": "Response format: plain text or JSON constrained by a JSON Schema.",
+        "description": "Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool.",
         "oneOf": [
           {
             "type": "object",
@@ -3731,7 +3731,7 @@ Send a prompt message to a session and wait for the AI response. Use parts to se
 | `agent` | string | no | Agent to use |
 | `noReply` | boolean | no | If true, inject context without triggering AI response (useful for plugins) |
 | `system` | string | no | System prompt override |
-| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. |
+| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool. |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
 
 #### Structured output
@@ -3784,7 +3784,7 @@ Send a prompt message to a session and wait for the AI response. Use parts to se
         "type": "string"
       },
       "format": {
-        "description": "Response format: plain text or JSON constrained by a JSON Schema.",
+        "description": "Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool.",
         "oneOf": [
           {
             "type": "object",
@@ -3879,7 +3879,7 @@ Send a prompt asynchronously and return its messageId. Pass sessionId and messag
 | `modelID` | string | no | Model ID (e.g. 'claude-3-5-sonnet-20241022') |
 | `variant` | string | no | Model variant (e.g. 'fast', 'smart') |
 | `agent` | string | no | Agent to use |
-| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. |
+| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool. |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
 
 #### Structured output
@@ -3924,7 +3924,7 @@ Send a prompt asynchronously and return its messageId. Pass sessionId and messag
         "type": "string"
       },
       "format": {
-        "description": "Response format: plain text or JSON constrained by a JSON Schema.",
+        "description": "Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool.",
         "oneOf": [
           {
             "type": "object",

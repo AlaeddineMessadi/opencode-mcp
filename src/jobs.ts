@@ -114,11 +114,31 @@ export async function observeSession(
   directory = normalizeDirectory(directory);
   const context = createRequestContext(options);
   const request = { signal: context.signal, deadline: context.deadline };
+  let historyIncomplete = false;
+  const readMessages = async () => {
+    const path = `/session/${segment(sessionId)}/message`;
+    try {
+      return await client.get<unknown>(path, { limit: "100" }, directory, request);
+    } catch (error) {
+      // OpenCode 1.18.31 cannot encode persisted OutputFormat class instances
+      // on user messages. A latest-assistant-only read avoids that broken row.
+      // Require a known parent ID; partial history cannot establish ownership.
+      if (!messageId || !isOutputFormatEncodingError(error)) throw error;
+      historyIncomplete = true;
+      try {
+        return await client.get<unknown>(path, { limit: "1" }, directory, request);
+      } catch (latestError) {
+        // Before the assistant exists, even the latest row is the broken user.
+        if (!isOutputFormatEncodingError(latestError)) throw latestError;
+        return [];
+      }
+    }
+  };
   try {
     const [statuses, session, response] = await Promise.all([
       client.get<Record<string, any>>("/session/status", undefined, directory, request),
       client.get<any>(`/session/${segment(sessionId)}`, undefined, directory, request),
-      client.get<unknown>(`/session/${segment(sessionId)}/message`, { limit: "100" }, directory, request),
+      readMessages(),
     ]);
     if (!Array.isArray(response)) throw new Error("Invalid session message response");
     const messages = [...response].sort((a: any, b: any) =>
@@ -139,8 +159,10 @@ export async function observeSession(
       }
       // A tool-call step can complete while the turn continues. Require idle,
       // a completed assistant and a final finish reason when supplied.
+      // Validated structured output itself ends the turn, even though OpenCode
+      // preserves the StructuredOutput step's "tool-calls" finish reason.
       if ((state === "idle" || (target && latestUser && latestUser.info.id !== target)) && typeof assistant.info.time?.completed === "number" &&
-          !["tool-calls", "unknown"].includes(assistant.info.finish)) {
+          (assistant.info.structured !== undefined || !["tool-calls", "unknown"].includes(assistant.info.finish))) {
         snapshot.status = "completed";
         return snapshot;
       }
@@ -151,6 +173,12 @@ export async function observeSession(
       return snapshot;
     }
     if (state === "busy" || state === "retry" || state === "running") snapshot.status = "running";
+    if (historyIncomplete) {
+      snapshot.status = "unknown";
+      snapshot.error = { name: "MessageHistoryUnavailable", message: "OpenCode could not serialize message history. No completed result for the requested turn is available yet; observe this job again without resubmitting." };
+      snapshot.inputs = [];
+      return snapshot;
+    }
     // A session can contain another active turn. Never offer its permissions
     // as inputs for an older job, even if that job's result is unavailable.
     if (target && latestUser && latestUser.info.id !== target) {
@@ -163,6 +191,19 @@ export async function observeSession(
     return snapshot;
   } finally {
     context.dispose();
+  }
+}
+
+function isOutputFormatEncodingError(error: unknown): boolean {
+  if (!(error instanceof OpenCodeError) || error.status !== 400 || error.method !== "GET") return false;
+  try {
+    const body = JSON.parse(error.body);
+    return body?.name === "BadRequest" && body.data?.kind === "Body" &&
+      typeof body.data.message === "string" &&
+      /^Expected OutputFormat(?:JsonSchema|Text), got /.test(body.data.message) &&
+      body.data.message.includes('["info"]["format"]');
+  } catch {
+    return false;
   }
 }
 
