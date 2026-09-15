@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking changes
+
+- Require Node.js 22 or newer. Upgrade the runtime used by your MCP client before installing the next release. The published 2.0.1 package remains unchanged until release.
+- Move the MCP implementation to the split SDK v2 packages. Keep legacy stdio clients supported through protocol negotiation; native Tasks and interactive input depend on client capabilities.
+
+### Added
+
+- Durable local job handles and result storage, with get/list/cancel/input tools and default 24-hour retention. Override the storage directory with `OPENCODE_TASK_STORE`.
+- Native MCP Tasks support for `opencode_run` through the stdio adapter, with explicit polling and ordinary fire/check/wait fallback.
+- Pending question list/reply/reject tools and explicit permission/question responses for jobs. Supporting clients can present interactive input; permissions are never silently approved.
+- Optional `full` and `essential` tool profiles selected with `OPENCODE_TOOL_PROFILE`.
+- Structured MCP outputs alongside readable text, plus optional OpenCode JSON-schema response formats for prompts.
+- Project/session resource templates with encoded absolute server paths; static resources retain their default-project scope.
+
+### Fixed
+
+- Recognize completed JSON-schema tool responses, show the validated JSON in readable output, and recover correlated async results from OpenCode 1.18.31 response-format history serialization failures. Document the required `StructuredOutput` permission.
+- Correlate async observation with submitted work and report accepted, running, input-required, completed, failed, cancelled, and unknown states accurately. Observation timeouts preserve progress and do not imply cancellation.
+- Preserve request deadlines and cancellation, avoid unsafe automatic mutation retries, and scope event streams to the requested project.
+- Redact sensitive configuration/provider fields and preserve valid JSON when responses are truncated.
+- Make tool annotations and generated documentation match the registered public surface.
+- Replace unsafe smoke-test session fallback with a disposable project and owned-session cleanup. Unexpected backend errors now fail verification; inference requires an explicit provider/model opt-in and skipped tools are reported honestly.
+- Refresh client configuration examples, remote path guidance, resource capabilities, development checks, and release verification instructions.
+
+### Migration notes
+
+- Keep OpenCode running externally if work must continue after MCP disconnect. Persisted job records allow resumed observation; they do not checkpoint inference or restart an auto-started child that was closed with MCP.
+- Clients should inspect structured state and identifiers rather than parse status text. A timeout means observation ended, not that the job failed. Check existing work before retrying an ambiguous submission.
+- The essential profile reduces advertised tools but is not a sandbox. OpenCode's project permission policy still controls delegated coding operations.
+
 ## [2.0.1] - 2026-09-15
 
 ### Breaking changes

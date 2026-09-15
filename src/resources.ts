@@ -6,9 +6,9 @@
  * things like "show me the current project" or "list available sessions".
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "./mcp-server.js";
 import { OpenCodeClient } from "./client.js";
-import { safeStringify } from "./helpers.js";
+import { normalizeDirectory, redactSecrets, safeStringify } from "./helpers.js";
 
 export function registerResources(server: McpServer, client: OpenCodeClient) {
   // ─── Current Project ──────────────────────────────────────────────
@@ -60,7 +60,7 @@ export function registerResources(server: McpServer, client: OpenCodeClient) {
           {
             uri: "opencode://config",
             mimeType: "application/json",
-            text: safeStringify(config),
+            text: safeStringify(redactSecrets(config)),
           },
         ],
       };
@@ -83,7 +83,7 @@ export function registerResources(server: McpServer, client: OpenCodeClient) {
           {
             uri: "opencode://providers",
             mimeType: "application/json",
-            text: safeStringify(providers),
+            text: safeStringify(redactSecrets(providers)),
           },
         ],
       };
@@ -190,7 +190,7 @@ export function registerResources(server: McpServer, client: OpenCodeClient) {
     },
   );
 
-  // ─── Session list (resource template) ─────────────────────────────
+  // ─── Default-project session list ────────────────────────────────
   server.resource(
     "sessions",
     "opencode://sessions",
@@ -255,4 +255,40 @@ export function registerResources(server: McpServer, client: OpenCodeClient) {
       };
     },
   );
+
+  // URI path variables are percent-encoded components, including the complete
+  // server-side directory. Never resolve these paths against the MCP host.
+  const scalar = (value: string | string[] | undefined, name: string): string => {
+    if (typeof value !== "string" || !value) throw new Error(`Missing resource ${name}`);
+    return decodeURIComponent(value);
+  };
+  for (const [name, suffix, endpoint] of [
+    ["project-scoped", "current", "/project/current"],
+    ["sessions-scoped", "sessions", "/session"],
+  ] as const) {
+    server.resource(name,
+      new ResourceTemplate(`opencode://projects/{directory}/${suffix}`, { list: undefined }),
+      { description: `Project-scoped ${suffix}; percent-encode the absolute server directory`, mimeType: "application/json" },
+      async (uri, variables) => {
+        const directory = normalizeDirectory(scalar(variables.directory, "directory"));
+        const data = await client.get(endpoint, undefined, directory);
+        return { contents: [{ uri: uri.href, mimeType: "application/json", text: safeStringify(data) }] };
+      },
+    );
+  }
+  for (const [name, suffix, endpointSuffix] of [
+    ["session-scoped", "", ""],
+    ["session-messages-scoped", "/messages", "/message"],
+  ] as const) {
+    server.resource(name,
+      new ResourceTemplate(`opencode://projects/{directory}/sessions/{sessionId}${suffix}`, { list: undefined }),
+      { description: `Session ${suffix ? "messages" : "details"} in an explicitly scoped project`, mimeType: "application/json" },
+      async (uri, variables) => {
+        const directory = normalizeDirectory(scalar(variables.directory, "directory"));
+        const sessionId = scalar(variables.sessionId, "sessionId");
+        const data = await client.get(`/session/${encodeURIComponent(sessionId)}${endpointSuffix}`, undefined, directory);
+        return { contents: [{ uri: uri.href, mimeType: "application/json", text: safeStringify(data) }] };
+      },
+    );
+  }
 }

@@ -1,6 +1,7 @@
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "../mcp-server.js";
 import { OpenCodeClient } from "../client.js";
+import { createMessageId } from "../jobs.js";
 import {
   toolResult,
   toolError,
@@ -9,6 +10,7 @@ import {
   formatMessageList,
   applyModelDefaults,
   directoryParam,
+  outputFormatParam,
 } from "../helpers.js";
 
 export function registerMessageTools(
@@ -35,7 +37,7 @@ export function registerMessageTools(
           query,
           directory,
         );
-        return toolResult(formatMessageList(messages as unknown[]));
+        return toolResult(formatMessageList(messages as unknown[]), false, { data: messages });
       } catch (e) {
         return toolError(e);
       }
@@ -57,7 +59,7 @@ export function registerMessageTools(
           undefined,
           directory,
         );
-        return toolResult(formatMessageResponse(msg));
+        return toolResult(formatMessageResponse(msg), false, { data: msg });
       } catch (e) {
         return toolError(e);
       }
@@ -87,6 +89,7 @@ export function registerMessageTools(
           "If true, inject context without triggering AI response (useful for plugins)",
         ),
       system: z.string().optional().describe("System prompt override"),
+      format: outputFormatParam,
       directory: directoryParam,
     },
     async ({
@@ -98,6 +101,7 @@ export function registerMessageTools(
       agent,
       noReply,
       system,
+      format,
       directory,
     }) => {
       try {
@@ -110,6 +114,7 @@ export function registerMessageTools(
         if (agent) body.agent = agent;
         if (noReply !== undefined) body.noReply = noReply;
         if (system) body.system = system;
+        if (format) body.format = format;
         const response = await client.post(
           `/session/${sessionId}/message`,
           body,
@@ -126,6 +131,7 @@ export function registerMessageTools(
         return toolResult(
           parts.join("\n\n") || "Empty response.",
           analysis.hasError,
+          { data: response },
         );
       } catch (e) {
         return toolError(e);
@@ -135,7 +141,7 @@ export function registerMessageTools(
 
   server.tool(
     "opencode_message_send_async",
-    "Send a prompt message asynchronously (fire-and-forget, does not wait for response). Use opencode_wait to poll for completion.",
+    "Send a prompt asynchronously and return its messageId. Pass sessionId and messageId to opencode_wait to observe this exact turn.",
     {
       sessionId: z.string().describe("Session ID"),
       text: z.string().describe("The text message to send"),
@@ -149,23 +155,29 @@ export function registerMessageTools(
         .describe("Model ID (e.g. 'claude-3-5-sonnet-20241022')"),
       variant: z.string().optional().describe("Model variant (e.g. 'fast', 'smart')"),
       agent: z.string().optional().describe("Agent to use"),
+      format: outputFormatParam,
       directory: directoryParam,
     },
-    async ({ sessionId, text, providerID, modelID, variant, agent, directory }) => {
+    async ({ sessionId, text, providerID, modelID, variant, agent, format, directory }) => {
+      const messageId = createMessageId();
       try {
         const body: Record<string, unknown> = {
+          messageID: messageId,
           parts: [{ type: "text", text }],
         };
         const model = applyModelDefaults(providerID, modelID);
         if (model) body.model = model;
         if (variant) body.variant = variant;
         if (agent) body.agent = agent;
+        if (format) body.format = format;
         await client.post(`/session/${sessionId}/prompt_async`, body, { directory });
         return toolResult(
-          "Message sent asynchronously. Use opencode_wait or opencode_message_list to check for responses.",
+          `Message sent asynchronously. Use opencode_wait({sessionId: "${sessionId}", messageId: "${messageId}"}) to observe this exact turn.`,
+          false,
+          { data: { sessionId, messageId, status: "submitted" } },
         );
       } catch (e) {
-        return toolError(e);
+        return { ...toolError(e), structuredContent: { data: { sessionId, messageId } } };
       }
     },
   );
@@ -212,7 +224,7 @@ export function registerMessageTools(
           body,
           { directory },
         );
-        return toolResult(formatMessageResponse(result));
+        return toolResult(formatMessageResponse(result), false, { data: result });
       } catch (e) {
         return toolError(e);
       }
@@ -240,7 +252,7 @@ export function registerMessageTools(
           body,
           { directory },
         );
-        return toolResult(formatMessageResponse(result));
+        return toolResult(formatMessageResponse(result), false, { data: result });
       } catch (e) {
         return toolError(e);
       }

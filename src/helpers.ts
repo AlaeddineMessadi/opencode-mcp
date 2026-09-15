@@ -34,6 +34,16 @@ export const directoryParam = z
       "If omitted, the OpenCode server uses its own working directory.",
   );
 
+/** OpenCode SDK OutputFormat, accepted by synchronous and async prompts. */
+export const outputFormatParam = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("text") }),
+  z.object({
+    type: z.literal("json_schema"),
+    schema: z.record(z.string(), z.unknown()),
+    retryCount: z.number().int().nonnegative().optional(),
+  }),
+]).optional().describe("Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool.");
+
 // ── Default Provider/Model ────────────────────────────────────────────
 
 /**
@@ -115,6 +125,9 @@ export function normalizeDirectory(directory?: string): string | undefined {
  */
 export function formatMessageResponse(response: unknown): string {
   const r = response as any;
+  // StructuredOutput is a tool call whose generic acknowledgement is not the
+  // answer. Prefer the validated value over tool receipts and token metadata.
+  if (r?.info?.structured !== undefined) return safeStringify(r.info.structured);
   const sections: string[] = [];
 
   // Omit verbose message header for cleaner output; the caller (opencode_ask etc.)
@@ -209,7 +222,9 @@ export function formatMessageList(
 
       let summary = `--- Message ${i + 1} [${role}] (${id}) ---\n`;
 
-      if (textParts) {
+      if (msg?.info?.structured !== undefined) {
+        summary += safeStringify(msg.info.structured);
+      } else if (textParts) {
         summary += textParts;
         if (toolParts.length > 0) {
           summary += `\n[${toolParts.length} tool call(s)]`;
@@ -325,18 +340,33 @@ export function formatSessionList(
 }
 
 /**
- * Generic safe JSON stringify with truncation for very large responses.
+ * Serialize JSON, returning a valid JSON preview envelope for large values.
+ * The preview is deliberately a string: it must never be mistaken for complete data.
  */
 export function safeStringify(
   value: unknown,
   maxLength: number = 50000,
 ): string {
-  const json = JSON.stringify(value, null, 2);
+  if (!Number.isInteger(maxLength) || maxLength < 32) {
+    throw new Error("JSON output budget must be an integer of at least 32 characters.");
+  }
+  const json = JSON.stringify(value ?? null, null, 2);
   if (json.length <= maxLength) return json;
-  return (
-    json.slice(0, maxLength) +
-    `\n\n... [truncated, ${json.length - maxLength} more characters]`
-  );
+  const envelope = (length: number) => JSON.stringify({
+    truncated: true,
+    originalLength: json.length,
+    omittedCharacters: json.length - length,
+    preview: json.slice(0, length),
+  });
+  if (envelope(0).length > maxLength) return JSON.stringify({ truncated: true });
+  let low = 0;
+  let high = Math.min(json.length, maxLength);
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (envelope(middle).length <= maxLength) low = middle;
+    else high = middle - 1;
+  }
+  return envelope(low);
 }
 
 /**
@@ -372,22 +402,19 @@ export function analyzeMessageResponse(response: unknown): {
     (p: any) =>
       p.error ||
       (p.type === "tool" && p.state?.status === "error") ||
-      (p.type === "tool-result" && p.error) ||
-      (typeof p.text === "string" && /\b(error|unauthorized|forbidden|invalid.?key)\b/i.test(p.text)),
+      (p.type === "tool-result" && p.error),
   );
-  if (errorParts.length > 0) {
+  if (r?.info?.error || r?.error || errorParts.length > 0) {
     const firstError =
-      errorParts[0].error ??
-      errorParts[0].state?.error ??
-      errorParts[0].text ??
+      r?.info?.error ?? r?.error ??
+      errorParts[0]?.error ??
+      errorParts[0]?.state?.error ??
       JSON.stringify(errorParts[0]);
     return {
       isEmpty: false,
       hasError: true,
       warning:
-        `The response contains an error: ${typeof firstError === "string" ? firstError : JSON.stringify(firstError)}. ` +
-        "This may indicate an authentication issue. " +
-        "Use `opencode_auth_set` to verify your API key.",
+        `The response contains an error: ${typeof firstError === "string" ? firstError : JSON.stringify(firstError)}.`,
     };
   }
 
@@ -398,6 +425,7 @@ export function analyzeMessageResponse(response: unknown): {
     .join("");
 
   const hasToolActivity = parts.some((p: any) => ["tool", "tool-invocation", "tool-result"].includes(p.type));
+  if (r?.info?.structured !== undefined) return { isEmpty: false, hasError: false, warning: null };
   if (parts.length === 0 || (textContent === "" && !hasToolActivity)) {
     return {
       isEmpty: true,
@@ -436,8 +464,8 @@ function redactUrlSecrets(url: string): string {
     let changed = false;
     const sensitiveParamPattern = /(?:key|token|secret|password|credential|auth)/i;
     for (const [name, val] of parsed.searchParams.entries()) {
-      if ((sensitiveParamPattern.test(name) && val.length > 8) || looksLikeSecret(val)) {
-        parsed.searchParams.set(name, val.slice(0, 4) + "***REDACTED***");
+      if ((sensitiveParamPattern.test(name) && val.length > 0) || looksLikeSecret(val)) {
+        parsed.searchParams.set(name, (val.length > 8 ? val.slice(0, 4) : "") + "***REDACTED***");
         changed = true;
       }
     }
@@ -477,9 +505,9 @@ export function redactSecrets(value: unknown): unknown {
     const sensitiveKeyPattern = /(?:key|token|secret|password|credential|api_key|apikey|auth)/i;
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       if (typeof v === "string") {
-        if (v.length > 8 && sensitiveKeyPattern.test(k)) {
+        if (v.length > 0 && sensitiveKeyPattern.test(k)) {
           // Layer 1: key-name match
-          result[k] = v.slice(0, 4) + "***REDACTED***";
+          result[k] = (v.length > 8 ? v.slice(0, 4) : "") + "***REDACTED***";
         } else if (looksLikeSecret(v)) {
           // Layer 2: value looks like a secret
           result[k] = v.slice(0, 4) + "***REDACTED***";
@@ -550,10 +578,11 @@ export function resolveSessionStatus(raw: unknown): string {
 /**
  * Standard tool response builder.
  */
-export function toolResult(text: string, isError = false) {
+export function toolResult(text: string, isError = false, structuredContent?: Record<string, unknown>) {
   return {
     content: [{ type: "text" as const, text }],
     ...(isError ? { isError: true } : {}),
+    ...(structuredContent ? { structuredContent } : {}),
   };
 }
 
@@ -586,7 +615,7 @@ function diagnoseError(msg: string): string {
     tips.push("- List active sessions with `opencode_sessions_overview`");
   } else if (lower.includes("rate limit") || lower.includes("429")) {
     tips.push("- Wait a moment and retry, or switch provider");
-    tips.push("- Try a free model: `opencode_ask` with providerID `opencode`, modelID `minimax-m2.1-free`");
+    tips.push("- Use `opencode_provider_list` and `opencode_provider_models` to find an available alternative");
   } else if (lower.includes("econnrefused")) {
     tips.push("- The OpenCode server is not accepting connections");
     tips.push("- Is `opencode serve` running? Check with `opencode_setup`");
@@ -612,5 +641,6 @@ function diagnoseError(msg: string): string {
 }
 
 export function toolJson(value: unknown) {
-  return toolResult(safeStringify(value));
+  const text = safeStringify(value);
+  return toolResult(text, false, { data: JSON.parse(text) });
 }

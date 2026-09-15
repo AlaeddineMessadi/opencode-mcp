@@ -1,99 +1,26 @@
 # Prompts Reference
 
-MCP Prompts are guided workflow templates that your client can offer as selectable actions. They structure multi-step interactions with OpenCode.
+MCP prompts return workflow instructions for the client to follow. Requesting a prompt does not execute its suggested tools or approve an operation. The six existing prompt names and input schemas are unchanged.
 
-## Available Prompts (6)
+| Prompt | Arguments | Guidance |
+|---|---|---|
+| `opencode-code-review` | `sessionId` | Confirm project scope, inspect diffs, and provide evidence-based review feedback |
+| `opencode-debug` | `issue`, optional `context` | Inspect setup, choose a model, investigate, then propose or implement an authorized fix |
+| `opencode-project-setup` | none | Read project context and key files; use a read-only OpenCode request when low-level file tools are not advertised |
+| `opencode-implement` | `description`, optional `requirements` | Dispatch implementation through run/fire, retain identifiers, resolve explicit input, review changes and tests |
+| `opencode-best-practices` | none | Select tools/models, interpret async states, recover jobs, handle input, and understand scope and lifecycle |
+| `opencode-session-summary` | `sessionId` | Check current state, inspect bounded history and changes, and summarize completed and remaining work |
 
-### `opencode-code-review`
+## Async Guidance
 
-Review code changes in an OpenCode session.
+The implementation and debugging prompts retain the returned `jobId`, `sessionId`, and `messageId`. They use `opencode_job_get`, `opencode_check`, or `opencode_wait` to follow existing work. A timeout does not instruct the client to submit a duplicate prompt.
 
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `sessionId` | string | yes | Session ID to review |
+When work reports `input_required`, the prompt asks the client to present the pending permission or question and forward the user's explicit response. It does not recommend bypassing the request with blanket permission approval.
 
-**What it does:**
-1. Fetches the diff with `opencode_review_changes`
-2. Analyzes changes for correctness, style, performance, and security
-3. Provides structured line-level feedback
-4. Suggests improvements
+## Project and Model Context
 
----
+Use the absolute directory on the OpenCode server for relevant tool calls. These prompt schemas do not contain a directory argument; the client must use the project directory established in the conversation. Do not assume that a previous tool call changed the server's default project.
 
-### `opencode-debug`
+Provider/model IDs come from discovery or both configured environment defaults. The essential profile supports the common workflow tools, while specialist file/API tools require the full profile. Prompts should only invoke capabilities actually advertised to the client.
 
-Start a guided debugging session.
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `issue` | string | yes | Description of the bug |
-| `context` | string | no | Additional context (file paths, error messages) |
-
-**What it does:**
-1. Gets project context with `opencode_context`
-2. Searches for relevant files
-3. Reads and analyzes source code
-4. Identifies root cause and suggests a fix
-
----
-
-### `opencode-project-setup`
-
-Get oriented in a new project.
-
-*No arguments.*
-
-**What it does:**
-1. Gets project info, VCS status, and available agents
-2. Lists the project structure
-3. Reads key files (README, package.json, configs, entry points)
-4. Provides a summary: what the project does, tech stack, structure, how to build/run
-
----
-
-### `opencode-implement`
-
-Have OpenCode implement a feature or make changes.
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `description` | string | yes | What to implement |
-| `requirements` | string | no | Specific requirements or constraints |
-
-**What it does:**
-1. Gets project context
-2. Sends the implementation request to OpenCode's build agent
-3. Reviews the changes made
-4. Reports what was implemented and any follow-up items
-
----
-
-### `opencode-best-practices`
-
-Get guidance on using opencode-mcp effectively.
-
-*No arguments.*
-
-**What it does:**
-Provides structured advice on:
-- Initial setup and provider configuration
-- Tool selection (which tools to use for which tasks)
-- Session management and monitoring patterns
-- Common pitfalls and how to avoid them
-- Recommended workflows for common scenarios
-
----
-
-### `opencode-session-summary`
-
-Summarize what happened in an OpenCode session.
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `sessionId` | string | yes | Session ID to summarize |
-
-**What it does:**
-1. Gets session metadata
-2. Reads the full conversation history
-3. Reviews file changes
-4. Provides a summary: what was discussed, actions taken, files modified, remaining work
+See [examples](examples.md) for concrete tool calls and [configuration](configuration.md) for profiles and lifecycle behavior.

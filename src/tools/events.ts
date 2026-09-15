@@ -3,9 +3,10 @@
  */
 
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "../mcp-server.js";
 import { OpenCodeClient } from "../client.js";
-import { toolResult, toolError, directoryParam } from "../helpers.js";
+import { createRequestContext } from "../async.js";
+import { toolResult, toolError, directoryParam, readOnly } from "../helpers.js";
 
 export function registerEventTools(
   server: McpServer,
@@ -13,65 +14,62 @@ export function registerEventTools(
 ) {
   server.tool(
     "opencode_events_poll",
-    "Poll for recent events from the OpenCode server. Collects events for the specified duration and returns them. Useful for monitoring session activity, deployments, and system changes.",
+    "Poll project events from OpenCode, or explicitly select global scope. Collects up to maxEvents within the duration. Connection failures are reported with any partial events; stopping observation does not abort remote work.",
     {
       durationMs: z
-        .number()
+        .number().int().min(1).max(30000)
         .optional()
         .describe(
           "How long to collect events in milliseconds (default: 3000, max: 30000)",
         ),
       maxEvents: z
-        .number()
+        .number().int().min(1).max(1000)
         .optional()
-        .describe("Maximum number of events to collect (default: 50)"),
+        .describe("Maximum number of events to collect (default: 50, max: 1000)"),
       directory: directoryParam,
+      scope: z.enum(["project", "global"]).optional().describe("Event scope (default: project). Global events include all projects and cannot be combined with directory."),
     },
-    async ({ durationMs, maxEvents, directory: _directory }) => {
+    readOnly,
+    async ({ durationMs, maxEvents, directory, scope }, extra) => {
+      const events: Array<{ event: string; data: string }> = [];
       try {
-        const duration = Math.min(durationMs ?? 3000, 30000);
-        const max = maxEvents ?? 50;
-        const events: Array<{ event: string; data: string }> = [];
-
-        // Note: SSE subscribeSSE does not currently support the directory
-        // header. The event stream is server-wide. The directory param is
-        // accepted for API consistency but not forwarded to SSE.
-
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), duration);
-
+        if (scope === "global" && directory) throw new Error("Global event scope cannot be combined with directory");
+        const context = createRequestContext({ signal: extra?.signal, timeout: durationMs ?? 3000 });
+        let streamError: unknown;
         try {
-          for await (const evt of client.subscribeSSE("/event", { signal: controller.signal })) {
+          for await (const evt of client.subscribeSSE(scope === "global" ? "/global/event" : "/event", {
+            signal: context.signal, deadline: context.deadline, directory,
+          })) {
             events.push(evt);
-            if (events.length >= max) break;
-            if (controller.signal.aborted) break;
+            if (events.length >= (maxEvents ?? 50)) break;
           }
-        } catch {
-          // SSE connection will error when aborted — that's expected
+        } catch (error) {
+          // Only the polling window expiring normally is a successful empty
+          // observation. Caller cancellation and connection errors stay visible.
+          if (!(context.signal.aborted && context.signal.reason?.name === "TimeoutError" && !extra?.signal?.aborted)) {
+            streamError = error;
+          }
         } finally {
-          clearTimeout(timeout);
+          context.dispose();
         }
-
-        if (events.length === 0) {
-          return toolResult("No events received during the polling period.");
+        const formatted = events.map((e) => {
+          try { return `[${e.event}] ${JSON.stringify(JSON.parse(e.data), null, 2)}`; }
+          catch { return `[${e.event}] ${e.data}`; }
+        }).join("\n\n");
+        if (streamError) {
+          const failure = toolError(streamError);
+          return {
+            ...failure,
+            content: [...failure.content, ...(events.length ? [{ type: "text" as const, text: `Collected ${events.length} partial event(s) before the stream stopped:\n\n${formatted}` }] : [])],
+            structuredContent: { events, partial: true, scope: scope ?? "project" },
+          };
         }
-
-        const formatted = events
-          .map((e) => {
-            try {
-              const parsed = JSON.parse(e.data);
-              return `[${e.event}] ${JSON.stringify(parsed, null, 2)}`;
-            } catch {
-              return `[${e.event}] ${e.data}`;
-            }
-          })
-          .join("\n\n");
-
-        return toolResult(
-          `Collected ${events.length} event(s):\n\n${formatted}`,
-        );
-      } catch (e) {
-        return toolError(e);
+        return {
+          ...toolResult(events.length ? `Collected ${events.length} event(s):\n\n${formatted}` : "No events received during the polling period."),
+          structuredContent: { events, partial: false, scope: scope ?? "project" },
+        };
+      } catch (error) {
+        return toolError(error);
       }
     },
   );

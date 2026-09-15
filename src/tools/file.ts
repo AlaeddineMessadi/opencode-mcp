@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "../mcp-server.js";
 import { OpenCodeClient } from "../client.js";
 import { toolJson, toolError, toolResult, directoryParam, readOnly } from "../helpers.js";
 
@@ -19,7 +19,7 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
         const raw = await client.get("/find", { pattern }, directory);
         const results = Array.isArray(raw) ? raw as Array<Record<string, unknown>> : [];
         if (results.length === 0) {
-          return toolResult(`No matches found for pattern: ${pattern}`);
+          return toolResult(`No matches found for pattern: ${pattern}`, false, { data: [] });
         }
         const formatted = results.map((r) => {
           // The API returns path as {text: "file.ts"} and lines as {text: "content\n"}
@@ -36,7 +36,7 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
               : JSON.stringify(rawLines);
           return `${filePath}:${lineNum}  ${lineText}`;
         }).join("\n");
-        return toolResult(`${results.length} match(es):\n\n${formatted}`);
+        return toolResult(`${results.length} match(es):\n\n${formatted}`, false, { data: results });
       } catch (e) {
         return toolError(e);
       }
@@ -71,9 +71,9 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
         if (limit !== undefined) q.limit = String(limit);
         const files = (await client.get("/find/file", q, directory)) as string[];
         if (!files || files.length === 0) {
-          return toolResult(`No files found matching: ${query}`);
+          return toolResult(`No files found matching: ${query}`, false, { data: [] });
         }
-        return toolResult(files.join("\n"));
+        return toolResult(files.join("\n"), false, { data: files });
       } catch (e) {
         return toolError(e);
       }
@@ -93,17 +93,21 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
         const raw = await client.get("/find/symbol", { query }, directory);
         const symbols = Array.isArray(raw) ? raw as Array<Record<string, unknown>> : [];
         if (symbols.length === 0) {
-          return toolResult(`No symbols found matching: ${query}`);
+          return toolResult(`No symbols found matching: ${query}`, false, { data: [] });
         }
         const lines = symbols.map((s) => {
           const name = s.name ?? s.symbol ?? "?";
           const kind = s.kind ? ` (${s.kind})` : "";
-          const loc = s.location ?? s.path ?? s.file ?? "";
-          const line = s.line ?? s.lineNumber ?? "";
+          const location = s.location && typeof s.location === "object"
+            ? s.location as { uri?: string; range?: { start?: { line?: number } } }
+            : undefined;
+          const loc = location?.uri ?? (typeof s.location === "string" ? s.location : s.path ?? s.file ?? "");
+          const line = typeof location?.range?.start?.line === "number"
+            ? location.range.start.line + 1 : s.line ?? s.lineNumber ?? "";
           const locStr = loc ? ` — ${loc}${line ? `:${line}` : ""}` : "";
           return `- ${name}${kind}${locStr}`;
         });
-        return toolResult(`${symbols.length} symbol(s) matching "${query}":\n\n${lines.join("\n")}`);
+        return toolResult(`${symbols.length} symbol(s) matching "${query}":\n\n${lines.join("\n")}`, false, { data: symbols });
       } catch (e) {
         return toolError(e);
       }
@@ -151,7 +155,7 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
       try {
         const result = (await client.get("/file/content", { path }, directory)) as Record<string, unknown>;
         if (typeof result.content === "string") {
-          return toolResult(`File: ${path}\n\n${result.content}`);
+          return toolResult(`File: ${path}\n\n${result.content}`, false, { data: result });
         }
         return toolJson(result);
       } catch (e) {

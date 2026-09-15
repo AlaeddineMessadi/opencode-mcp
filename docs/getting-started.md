@@ -1,126 +1,72 @@
 # Getting Started
 
-Set up opencode-mcp in under 2 minutes.
-
 ## Prerequisites
 
-- **Node.js** >= 18 ([download](https://nodejs.org/))
-- **OpenCode** installed ([opencode.ai](https://opencode.ai/))
-  - `curl -fsSL https://opencode.ai/install | bash`
-  - or `npm i -g opencode-ai`
-  - or `brew install sst/tap/opencode`
-- An **MCP-compatible client** (Claude Desktop, Claude Code, Cursor, Windsurf, etc.)
+- Node.js **22 or newer** for the unreleased version on this branch.
+- [OpenCode](https://opencode.ai/docs/) installed and a provider configured for model calls.
+- An MCP client capable of launching a stdio server.
 
-## Step 1: Add to Your Client
+The npm package is still 2.0.1; new features described on this branch are available after building from source until the next release.
 
-**Claude Code:**
+## 1. Start OpenCode
+
+From your project directory:
+
+```bash
+opencode serve --hostname 127.0.0.1 --port 4096
+```
+
+Alternatively, share your TUI's server by starting it with `opencode --port 4096`. Automatic startup is disabled by default. Opt in with `OPENCODE_AUTO_SERVE=true` only when you want a separate child server.
+
+## 2. Add MCP to Your Client
+
+For Claude Code:
 
 ```bash
 claude mcp add opencode -- npx -y opencode-mcp
 ```
 
-**Claude Desktop / Cursor / Windsurf / Cline / Continue**: add to your MCP config file:
+Other clients have different configuration shapes. Follow the [client configuration guide](configuration.md); for example VS Code uses `.vscode/mcp.json` with a `servers` object, while Continue uses YAML.
 
-```json
-{
-  "mcpServers": {
-    "opencode": {
-      "command": "npx",
-      "args": ["-y", "opencode-mcp"]
-    }
-  }
-}
-```
+For this source checkout, run `npm ci` and `npm run build`, then set your MCP command to `node` with the absolute path to `dist/index.js` as its argument. Restart the MCP connection after rebuilding.
 
-See [Configuration](configuration.md) for all client configs (VS Code Copilot, Zed, Amazon Q, OpenCode itself, etc.).
+## 3. Verify Setup and Choose a Model
 
-## Step 2: Start OpenCode and Restart Your Client
+Ask your client to:
 
-Start `opencode serve --hostname 127.0.0.1 --port 4096`, then restart your MCP client. If you use the TUI, start it with `opencode --port 4096` and share that server instead.
+1. Call `opencode_setup` to inspect server health and configured providers.
+2. Call `opencode_provider_models` for a configured provider.
+3. Call `opencode_context` with the absolute project `directory`.
+4. Pass the selected `providerID` and `modelID` when asking a question.
 
-Automatic startup is disabled by default. Set `OPENCODE_AUTO_SERVE=true` only if you want MCP to launch a separate local OpenCode child process.
+You can instead set both `OPENCODE_DEFAULT_PROVIDER` and `OPENCODE_DEFAULT_MODEL` in the MCP server's environment.
 
-## Step 3: Verify
+## 4. Start Work
 
-Ask your client to run a tool:
+Use `opencode_ask` for a quick question. For longer coding work, use `opencode_fire` and save its returned job/session identifiers. Check progress with `opencode_check`, or wait with `opencode_wait`.
 
-- *"Use opencode_setup to check server status"*
-- *"Use opencode_context to get project info"*
-- *"Use opencode_ask to explain this project"*
+If the state is `input_required`, inspect the pending permission or question and respond explicitly. A timeout means the observation period ended; continue monitoring instead of submitting the same task again. Once complete, use `opencode_review_changes` to inspect the result.
 
-If it returns data from OpenCode, everything is working.
-
-## What's Available
-
-You now have access to **80 tools**, **10 resources**, and **6 prompts**. Start with these:
-
-| Tool | What it does |
-|---|---|
-| `opencode_setup` | Check server health and provider config |
-| `opencode_ask` | Ask OpenCode a question (one call, one answer) |
-| `opencode_run` | Send a coding task and wait for it to finish |
-| `opencode_fire` | Dispatch a task in the background |
-| `opencode_check` | Check progress on a background task |
-| `opencode_context` | Get project info, VCS status, agents |
-
-See the full [Tools Reference](tools.md) and [Examples](examples.md).
+See [examples](examples.md) for task recovery, structured output, and independent projects.
 
 ## Troubleshooting
 
-### "Connection refused" errors
+### Connection refused
 
-The configured OpenCode server is unavailable. Start it manually:
+Start OpenCode on the configured port and check `OPENCODE_BASE_URL`. For opt-in auto-start, verify `opencode` is on the MCP process's PATH using `command -v opencode` on macOS/Linux or `Get-Command opencode` in PowerShell.
 
-```bash
-opencode serve
-```
+### Unauthorized
 
-If auto-start keeps failing, check that `opencode` is on your PATH:
+Configure matching `OPENCODE_SERVER_USERNAME` and `OPENCODE_SERVER_PASSWORD` values on the OpenCode server and MCP process. The username defaults to `opencode`. Do not place credentials in shared project configuration.
 
-```bash
-which opencode
-```
+### Tools missing
 
-### "Unauthorized" errors
+Restart the MCP connection after editing settings. Check the client's MCP logs and verify Node.js 22 or newer is available to the client. If `OPENCODE_TOOL_PROFILE=essential`, specialist tools are intentionally omitted; select `full` when needed.
 
-The OpenCode server has auth enabled. Add credentials:
+### Work stopped after closing the client
 
-```json
-{
-  "mcpServers": {
-    "opencode": {
-      "command": "npx",
-      "args": ["-y", "opencode-mcp"],
-      "env": {
-        "OPENCODE_SERVER_USERNAME": "myuser",
-        "OPENCODE_SERVER_PASSWORD": "mypass"
-      }
-    }
-  }
-}
-```
+Jobs persist metadata, but OpenCode must remain running to execute work. An auto-started child closes with MCP. Use an externally managed OpenCode server for work that must survive MCP disconnects.
 
-### Tools not showing up
+### Task never reports completion
 
-- Restart the client after editing the config
-- Check that `npx opencode-mcp` runs without errors in a terminal
-- Make sure your MCP client supports tools
-
-### Opt in to auto-start
-
-To allow MCP to start a local server when none is reachable:
-
-```json
-{
-  "env": {
-    "OPENCODE_AUTO_SERVE": "true"
-  }
-}
-```
-
-## Next Steps
-
-- [Configuration](configuration.md): all env vars and client configs
-- [Tools Reference](tools.md): all 80 tools
-- [Examples](examples.md): real workflow examples
-- [Prompts](prompts.md): 6 guided workflow templates
+Check its current state and pending input. Use `opencode_job_list` to rediscover tracked work after reconnecting. A server/network error or `unknown` state is not a reason to submit the same prompt again without checking its existing session.
