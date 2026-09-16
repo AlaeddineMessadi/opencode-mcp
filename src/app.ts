@@ -22,7 +22,7 @@ import { registerPrompts } from "./prompts.js";
 
 /** Build registrations without connecting or performing network/filesystem I/O. */
 export function createServer(client: OpenCodeClient, jobs: JobService, profile: ToolProfile = "full") {
-  const server = new McpServer({ name: "opencode-mcp", version: "2.0.1",
+  const server = new McpServer({ name: "opencode-mcp", version: "3.0.0",
     description: "Delegate coding work to OpenCode with durable jobs, explicit input, and project-scoped tools." }, {
     capabilities: { extensions: { [TASKS_EXTENSION]: {} } },
     cacheHints: { "tools/list": { ttlMs: 60000, cacheScope: "private" }, "prompts/list": { ttlMs: 60000, cacheScope: "private" },

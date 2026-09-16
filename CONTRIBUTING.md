@@ -63,4 +63,4 @@ Inference is disabled unless explicitly enabled with a provider/model pair. Read
 
 For bug reports, include the OpenCode version, package version, MCP client, Node version, client/server operating systems, and whether the OpenCode server is local, remote, or in WSL. Describe whether the issue concerns an existing server or an auto-started child. Sanitize credentials and private source/session content.
 
-Changes to runtime requirements, startup defaults, tool inputs, result schemas, or job recovery should include migration notes in the changelog. This branch's new features are unreleased; merging a PR does not publish npm automatically.
+Changes to runtime requirements, startup defaults, tool inputs, result schemas, or job recovery should include migration notes in the changelog. Merging a PR does not publish npm automatically.

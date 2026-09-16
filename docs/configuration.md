@@ -2,7 +2,7 @@
 
 ## Environment Variables
 
-An OpenCode server must already be running unless automatic startup is explicitly enabled. Node.js 22 or newer is required for the unreleased version on this branch.
+An OpenCode server must already be running unless automatic startup is explicitly enabled. Node.js 22 or newer is required for version 3.0.0 and later.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -29,7 +29,7 @@ For project-scoped tools, `directory` must be an absolute path on the OpenCode s
 
 ## MCP Client Configurations
 
-These examples launch the published npm package. When testing this unreleased branch, replace the command with `node` and the arguments with the absolute path to your built `dist/index.js`. Modern MCP extensions are negotiated; support for tools does not imply that a client supports tasks or interactive input.
+These examples launch the published npm package. When testing a source build, replace the command with `node` and the arguments with the absolute path to your built `dist/index.js`. Modern MCP extensions are negotiated; support for tools does not imply that a client supports tasks or interactive input.
 
 ### Claude Code
 

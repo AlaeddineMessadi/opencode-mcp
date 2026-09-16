@@ -8,7 +8,7 @@
 
 opencode-mcp connects Claude, Cursor, VS Code, and other MCP clients to OpenCode's headless API. Ask questions, implement features, monitor background work, respond to questions and permissions, and review changes across projects.
 
-> This branch contains unreleased changes. The npm package remains 2.0.1 until a new release is published. The next release requires **Node.js 22 or newer**; see [migration notes](CHANGELOG.md#unreleased).
+> Version 3.0.0 requires **Node.js 22 or newer**. Upgrading from 2.x? See the [migration notes](CHANGELOG.md#300---2026-09-16).
 
 ## Quick Start
 

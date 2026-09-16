@@ -34,7 +34,7 @@ describe("MCP process lifecycle", () => {
     await new Promise<void>((resolve, reject) => {
       child!.stderr!.on("data", (chunk) => {
         log += chunk;
-        if (log.includes("opencode-mcp v2.0.1 started (")) resolve();
+        if (log.includes("opencode-mcp v3.0.0 started (")) resolve();
       });
       child!.once("error", reject);
       child!.once("exit", () => reject(new Error(`Premature exit: ${log}`)));

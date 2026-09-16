@@ -2,11 +2,11 @@
 
 ## Prerequisites
 
-- Node.js **22 or newer** for the unreleased version on this branch.
+- Node.js **22 or newer** for version 3.0.0 and later.
 - [OpenCode](https://opencode.ai/docs/) installed and a provider configured for model calls.
 - An MCP client capable of launching a stdio server.
 
-The npm package is still 2.0.1; new features described on this branch are available after building from source until the next release.
+These instructions cover version 3.0.0. Review the [migration notes](../CHANGELOG.md#300---2026-09-16) when upgrading from 2.x.
 
 ## 1. Start OpenCode
 

@@ -1,6 +1,6 @@
 # Usage Examples
 
-These examples describe the unreleased branch. Replace provider/model placeholders with IDs discovered from `opencode_setup` and `opencode_provider_models`. All `directory` values refer to absolute paths on the OpenCode server.
+These examples describe version 3.0.0. Replace provider/model placeholders with IDs discovered from `opencode_setup` and `opencode_provider_models`. All `directory` values refer to absolute paths on the OpenCode server.
 
 ## Quick Question and Follow-Up
 

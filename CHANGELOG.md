@@ -5,11 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.0.0] - 2026-09-16
 
 ### Breaking changes
 
-- Require Node.js 22 or newer. Upgrade the runtime used by your MCP client before installing the next release. The published 2.0.1 package remains unchanged until release.
+- Require Node.js 22 or newer. Upgrade the runtime used by your MCP client before installing 3.0.0.
 - Move the MCP implementation to the split SDK v2 packages. Keep legacy stdio clients supported through protocol negotiation; native Tasks and interactive input depend on client capabilities.
 
 ### Added
