@@ -1,7 +1,7 @@
 {
   "name": "opencode-mcp",
-  "version": "2.0.1",
-  "description": "MCP server that wraps the OpenCode AI headless server API \u2014 80 tools, 10 resources, 6 prompts with multi-project support for any MCP client",
+  "version": "3.0.0",
+  "description": "MCP server for OpenCode coding workflows, durable async jobs, project resources, and explicit user input",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -22,7 +22,9 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "prepublishOnly": "npm run build",
-    "pretest": "npm run build"
+    "pretest": "npm run build",
+    "docs:generate": "npm run build && node scripts/generate-tool-docs.mjs",
+    "docs:check": "npm run build && node scripts/generate-tool-docs.mjs --check"
   },
   "keywords": [
     "mcp",
@@ -49,14 +51,19 @@
   "author": "Alaeddine Messadi",
   "license": "MIT",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.1",
-    "@opencode-ai/sdk": "^1.18.31"
+    "@modelcontextprotocol/core": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@opencode-ai/sdk": "^1.18.31",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^4.1.11",
     "typescript": "^5.7.0",
     "vitest": "^4.0.18"
   }

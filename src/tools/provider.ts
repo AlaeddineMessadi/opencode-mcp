@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "../mcp-server.js";
 import { OpenCodeClient } from "../client.js";
 import { toolJson, toolError, toolResult, directoryParam, isProviderConfigured } from "../helpers.js";
 
@@ -165,14 +165,14 @@ export function registerProviderTools(
           }
           const lines = entries.map(([providerId, methods]) => {
             const arr = Array.isArray(methods) ? methods as Array<Record<string, unknown>> : [];
-            const methodDescs = arr.map((m) => {
+            const methodDescs = arr.map((m, index) => {
               const type = m.type ?? "?";
               const label = m.label ?? "";
-              return label ? `${type} (${label})` : String(type);
+              return `[${index}] ${label ? `${type} (${label})` : String(type)}`;
             });
             return `- ${providerId}: ${methodDescs.join(", ") || "none"}`;
           });
-          return toolResult(`## Auth Methods (${entries.length} providers)\n${lines.join("\n")}`);
+          return toolResult(`## Auth Methods (${entries.length} providers)\n${lines.join("\n")}`, false, { data: raw });
         }
         return toolJson(raw);
       } catch (e) {
@@ -189,11 +189,13 @@ export function registerProviderTools(
     "Start OAuth authorization for a provider",
     {
       providerId: z.string().describe("Provider ID to authorize"),
+      method: z.number().int().nonnegative().default(0).describe("Auth method index from opencode_provider_auth_methods (default 0)"),
+      inputs: z.record(z.string(), z.string()).optional().describe("Additional inputs requested by the selected authentication method"),
     },
-    async ({ providerId }) => {
+    async ({ providerId, method, inputs }) => {
       try {
         return toolJson(
-          await client.post(`/provider/${providerId}/oauth/authorize`),
+          await client.post(`/provider/${encodeURIComponent(providerId)}/oauth/authorize`, { method: method ?? 0, ...(inputs ? { inputs } : {}) }),
         );
       } catch (e) {
         return toolError(e);
@@ -206,14 +208,15 @@ export function registerProviderTools(
     "Handle OAuth callback for a provider",
     {
       providerId: z.string().describe("Provider ID"),
-      callbackData: z
-        .record(z.string(), z.unknown())
-        .describe("OAuth callback data"),
+      callbackData: z.object({
+        method: z.number().int().nonnegative().describe("The method index used for authorization"),
+        code: z.string().optional().describe("Authorization code for methods that request one"),
+      }).describe("OAuth callback data"),
     },
     async ({ providerId, callbackData }) => {
       try {
         await client.post(
-          `/provider/${providerId}/oauth/callback`,
+          `/provider/${encodeURIComponent(providerId)}/oauth/callback`,
           callbackData,
         );
         return toolResult("OAuth callback processed.");

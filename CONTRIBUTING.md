@@ -1,99 +1,66 @@
 # Contributing to opencode-mcp
 
-Thanks for your interest in contributing! This project is open to everyone.
+## Setup
 
-## Getting Started
+Use Node.js 22 or newer and Git. Fork and clone the repository, then:
 
-1. **Fork** the repository
-2. **Clone** your fork:
-   ```bash
-   git clone https://github.com/<your-username>/opencode-mcp.git
-   cd opencode-mcp
-   ```
-3. **Install dependencies**:
-   ```bash
-   npm install
-   ```
-4. **Build**:
-   ```bash
-   npm run build
-   ```
-5. **Test locally**: start an OpenCode server (`opencode serve`) and run:
-   ```bash
-   npm start
-   ```
+```bash
+npm ci
+npm test
+```
+
+`npm test` builds the CLI and runs the regression suite. Automated tests use local fixtures; they do not require an OpenCode installation, provider credentials, or paid model calls.
+
+For manual use, build with `npm run build`, start an OpenCode server explicitly, and configure your MCP client to run `node` with the absolute path to `dist/index.js`. `npm run dev` rebuilds on edits; restart the MCP connection to load the updated process.
 
 ## Development Workflow
 
-1. Create a branch from `main`:
-   ```bash
-   git checkout -b feat/my-feature
-   ```
-2. Make your changes in `src/`
-3. Build and verify:
+1. Create a focused branch from `main`.
+2. Implement the change and add regression coverage for its meaningful failure modes.
+3. Run `npm run docs:generate` when changing registration schemas, and update workflow/migration documentation when behavior changes.
+4. Run:
    ```bash
    npm test
+   npm run docs:check
+   npm run test:coverage
    npm audit
    git diff --check
    ```
-4. Test manually against a running OpenCode server
-5. Commit with a descriptive message:
-   ```bash
-   git commit -m "feat: add support for X"
-   ```
-6. Push and open a pull request against `main`
+5. Review your diff and open a pull request describing the problem, resulting behavior, and validation.
 
-## Commit Messages
-
-Use [Conventional Commits](https://www.conventionalcommits.org/):
-
-- `feat:`: new feature
-- `fix:`: bug fix
-- `chore:`: maintenance (deps, config, CI)
-- `docs:`: documentation changes
-- `refactor:`: code restructuring without behavior change
-
-## What to Contribute
-
-- New tools wrapping OpenCode API endpoints
-- Bug fixes for existing tools
-- Better error handling or response formatting
-- Documentation improvements
-- MCP client configuration examples
-- Tests
+Use descriptive commits such as `fix: preserve async job state after timeout` or `feat: add project resource templates`. Keep credentials, live session data, generated test projects, and personal MCP configuration out of commits.
 
 ## Project Structure
 
+- `src/index.ts`: startup and registration.
+- `src/mcp-server.ts`: MCP registration adapter and shared output contracts.
+- `src/client.ts`: SDK-backed HTTP/SSE transport.
+- `src/server-manager.ts`: explicit server connection and opt-in child lifecycle.
+- `src/async.ts`: async observation and correlation.
+- `src/helpers.ts`: formatting, redaction, shared inputs.
+- `src/tools/`: low-level API tools and combined workflows.
+- `src/resources.ts`, `src/prompts.ts`: resources and prompt templates.
+- `tests/`: unit, HTTP, stdio, and smoke-runner regression tests.
+
+## Adding or Changing a Tool
+
+Use the registration adapter in the appropriate tool group. Include an input schema, truthful behavior annotations, and machine-readable outputs alongside readable text. Preserve intentional global/project scope and propagate cancellation, deadlines, and request metadata where applicable.
+
+Use shared result and error helpers. Do not swallow transport failures into successful empty results, automatically retry ambiguous mutations, or infer async completion from an absent busy status alone. Inputs for permissions/questions must reflect an explicit response, not an inferred approval.
+
+The generated tools reference must stay synchronized with registered schemas and profiles. Add contract coverage when changing the public API; use integration coverage for transport or protocol behavior rather than testing only a mocked handler.
+
+## Live Tests and Releases
+
+The default live runner uses a disposable local Git project and only sessions it created:
+
+```bash
+npm run build
+node scripts/mcp-smoke-test.mjs
 ```
-src/
-  index.ts          Entry point
-  client.ts         HTTP client (retry, SSE, errors)
-  helpers.ts        Response formatting utilities
-  resources.ts      MCP Resources
-  prompts.ts        MCP Prompts
-  tools/            Tool implementations (one file per domain)
-```
 
-## Adding a New Tool
+Inference is disabled unless explicitly enabled with a provider/model pair. Read [live verification and releasing](docs/releasing.md) before running model checks or preparing a publication. PASS applies only to checked capabilities; intentional SKIP entries are not coverage.
 
-1. Find the appropriate file in `src/tools/` (or create a new one)
-2. Register the tool with `server.tool(name, description, schema, handler)`
-3. Use `toolResult()`, `toolError()`, and `toolJson()` from `helpers.ts`
-4. Add the tool to the README and `docs/tools.md`
+For bug reports, include the OpenCode version, package version, MCP client, Node version, client/server operating systems, and whether the OpenCode server is local, remote, or in WSL. Describe whether the issue concerns an existing server or an auto-started child. Sanitize credentials and private source/session content.
 
-## Code Style
-
-- TypeScript with ES modules (`"type": "module"`)
-- Use the helper functions from `helpers.ts` instead of raw `JSON.stringify`
-- Handle errors gracefully: return `toolError()` instead of throwing
-
-## Questions?
-
-Open an [issue](https://github.com/AlaeddineMessadi/opencode-mcp/issues) for questions, bugs, or feature requests.
-
-
-## Regression Tests
-
-`npm test` builds the CLI and runs unit, HTTP transport and stdio process tests. The automated tests use local fixtures and do not require an OpenCode install or paid model calls. Node.js 22 or newer is recommended for development because Vitest 4 requires it; the published CLI supports Node.js 18 and newer.
-
-Report the OpenCode version, MCP version, client OS, server OS and whether the server is local, remote, or running in WSL. Keep one issue's fix in a focused commit and reference its issue in the PR. Changes to startup defaults or tool parameters should include migration notes.
+Changes to runtime requirements, startup defaults, tool inputs, result schemas, or job recovery should include migration notes in the changelog. Merging a PR does not publish npm automatically.

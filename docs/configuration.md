@@ -2,167 +2,53 @@
 
 ## Environment Variables
 
-All environment variables are **optional**. By default, an OpenCode server must already be running on port 4096.
+An OpenCode server must already be running unless automatic startup is explicitly enabled. Node.js 22 or newer is required for version 3.0.0 and later.
 
-| Variable | Description | Default | Required |
-|---|---|---|---|
-| `OPENCODE_BASE_URL` | URL of the OpenCode headless server | `http://127.0.0.1:4096` | No |
-| `OPENCODE_SERVER_USERNAME` | HTTP basic auth username | `opencode` | No |
-| `OPENCODE_SERVER_PASSWORD` | HTTP basic auth password | *(none: auth disabled)* | No |
-| `OPENCODE_AUTO_SERVE` | Opt in to starting a separate local `opencode serve` child process | `false` | No |
-| `OPENCODE_DEFAULT_PROVIDER` | Default provider ID when not specified per-tool | *(none)* | No |
-| `OPENCODE_DEFAULT_MODEL` | Default model ID when not specified per-tool | *(none)* | No |
+| Variable | Default | Description |
+|---|---|---|
+| `OPENCODE_BASE_URL` | `http://127.0.0.1:4096` | OpenCode HTTP endpoint |
+| `OPENCODE_SERVER_USERNAME` | `opencode` | Username when HTTP authentication is enabled |
+| `OPENCODE_SERVER_PASSWORD` | unset | HTTP password; set matching credentials on OpenCode and MCP |
+| `OPENCODE_AUTO_SERVE` | `false` | Set exactly `true` to allow a local child server to start |
+| `OPENCODE_DEFAULT_PROVIDER` | unset | Default prompt provider ID |
+| `OPENCODE_DEFAULT_MODEL` | unset | Default prompt model ID; configure both defaults together |
+| `OPENCODE_TOOL_PROFILE` | `full` | `full` or `essential`; changes the advertised tool set |
+| `OPENCODE_TASK_STORE` | see below | Root directory for persisted job records |
 
-### Notes
+Choose provider/model IDs from `opencode_setup` and `opencode_provider_models`. Authentication credentials are global to OpenCode; `directory` does not make provider credentials project-specific.
 
-- **Authentication is disabled by default.** It only activates when `OPENCODE_SERVER_PASSWORD` is set on both the OpenCode server and the MCP server.
-- **Username and password are both optional.** The default username is `opencode`, matching the OpenCode server's default. You only need to set these if you've explicitly enabled auth on the server.
-- **The base URL** should point to where `opencode serve` is listening. If running on the same machine with default settings, you don't need to set this.
-- **Default provider/model** are optional. When set, tools that accept `providerID`/`modelID` will use these as fallbacks when not specified per-call. Both must be set together. Example: `OPENCODE_DEFAULT_PROVIDER=anthropic` + `OPENCODE_DEFAULT_MODEL=claude-sonnet-4-5`.
-- **Directory validation**: `directory` is an absolute path on the OpenCode server. POSIX, Windows drive and UNC paths are preserved on every client OS. Relative paths and NUL/CR/LF bytes are rejected. Existence, permissions and symlinks are resolved by OpenCode. `opencode_project_init` is a local filesystem tool and cannot create directories on a remote server.
+The `essential` profile keeps the common delegation, observation, and required-input workflows available with fewer tool definitions. Select `full` for low-level API tools, TUI control, or provider administration. The profile is a discovery choice, not a security boundary: coding workflows can still modify files or run commands through OpenCode according to its permissions.
+
+Job records hold local operational metadata and results, independent of OpenCode's session storage. The default root is `$XDG_STATE_HOME/opencode-mcp/tasks` (falling back to `~/.local/state/opencode-mcp/tasks`); Windows uses `%LOCALAPPDATA%/opencode-mcp/tasks`. Records are partitioned by server and caller scope. Records expire 24 hours after creation; expiry removes the handle and does not abort the OpenCode session. Keep the task store private to your user account and persist it if the MCP process is ephemeral. See [architecture](architecture.md) for recovery behavior and retention.
+
+## Project Scope
+
+For project-scoped tools, `directory` must be an absolute path on the OpenCode server. POSIX, Windows drive, and UNC paths are preserved on every client OS; relative paths and NUL/CR/LF are rejected. OpenCode resolves existence, access, and symlinks. Global authentication tools omit `directory`.
+
+`opencode_project_init` operates on the MCP host filesystem and accepts `path`. It cannot create a directory on a remote OpenCode host. Static resources read the server's default project; [resource templates](resources.md) explicitly select a project or session.
 
 ## MCP Client Configurations
 
-Below are complete configuration examples for every supported MCP client. All examples assume the OpenCode server is running on the default `http://127.0.0.1:4096` with no auth.
+These examples launch the published npm package. When testing a source build, replace the command with `node` and the arguments with the absolute path to your built `dist/index.js`. Modern MCP extensions are negotiated; support for tools does not imply that a client supports tasks or interactive input.
 
-### Claude Desktop
-
-**Config file location:**
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-- Linux: `~/.config/Claude/claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "opencode": {
-      "command": "npx",
-      "args": ["-y", "opencode-mcp"]
-    }
-  }
-}
-```
-
-### Claude Code (CLI)
+### Claude Code
 
 ```bash
-# Add globally
+# Current project, private to your account
 claude mcp add opencode -- npx -y opencode-mcp
 
-# Add with custom env
-claude mcp add opencode --env OPENCODE_BASE_URL=http://192.168.1.10:4096 -- npx -y opencode-mcp
+# Available across projects
+claude mcp add opencode --scope user -- npx -y opencode-mcp
 
-# Remove
-claude mcp remove opencode
+# Custom endpoint
+claude mcp add opencode --env OPENCODE_BASE_URL=http://127.0.0.1:8080 -- npx -y opencode-mcp
 ```
 
-### Cursor
+See [Claude Code MCP configuration](https://code.claude.com/docs/en/mcp) for scopes and environment expansion.
 
-**Config file:** `.cursor/mcp.json` in your project root
+### Claude Desktop, Cursor, and Windsurf
 
-```json
-{
-  "mcpServers": {
-    "opencode": {
-      "command": "npx",
-      "args": ["-y", "opencode-mcp"]
-    }
-  }
-}
-```
-
-### Windsurf
-
-**Config file:** `~/.windsurf/mcp.json`
-
-```json
-{
-  "mcpServers": {
-    "opencode": {
-      "command": "npx",
-      "args": ["-y", "opencode-mcp"]
-    }
-  }
-}
-```
-
-### VS Code: GitHub Copilot
-
-**Config file:** `.vscode/settings.json` or user `settings.json`
-
-```json
-{
-  "github.copilot.chat.mcp.servers": [
-    {
-      "name": "opencode",
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "opencode-mcp"]
-    }
-  ]
-}
-```
-
-### Cline (VS Code extension)
-
-Cline manages MCP servers through its own settings UI. Add a new server with:
-
-- **Command:** `npx`
-- **Args:** `-y opencode-mcp`
-- **Transport:** stdio
-
-### Continue
-
-**Config file:** `.continue/config.json` in your project root or `~/.continue/config.json` globally
-
-```json
-{
-  "mcpServers": {
-    "opencode": {
-      "command": "npx",
-      "args": ["-y", "opencode-mcp"]
-    }
-  }
-}
-```
-
-### Zed
-
-**Config file:** `~/.config/zed/settings.json` or project `settings.json`
-
-```json
-{
-  "context_servers": {
-    "opencode": {
-      "command": {
-        "path": "npx",
-        "args": ["-y", "opencode-mcp"]
-      }
-    }
-  }
-}
-```
-
-### Amazon Q
-
-**Config file:** VS Code `settings.json`
-
-```json
-{
-  "amazon-q.mcp.servers": [
-    {
-      "name": "opencode",
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "opencode-mcp"]
-    }
-  ]
-}
-```
-
-### With authentication (optional)
-
-Add `env` to any config above. This is only needed if you've enabled auth on the OpenCode server:
+Use the following server entry in the client's MCP configuration:
 
 ```json
 {
@@ -170,93 +56,100 @@ Add `env` to any config above. This is only needed if you've enabled auth on the
     "opencode": {
       "command": "npx",
       "args": ["-y", "opencode-mcp"],
-      "env": {
-        "OPENCODE_BASE_URL": "http://127.0.0.1:4096",
-        "OPENCODE_SERVER_USERNAME": "myuser",
-        "OPENCODE_SERVER_PASSWORD": "mypass"
-      }
+      "env": { "OPENCODE_TOOL_PROFILE": "essential" }
     }
   }
 }
 ```
 
-### With global install (instead of npx)
+- **Claude Desktop:** open the app's developer settings to edit its MCP configuration.
+- **Cursor:** use the MCP settings UI or the project's `.cursor/mcp.json`; see [Cursor MCP documentation](https://cursor.com/docs/mcp).
+- **Windsurf:** edit `~/.codeium/windsurf/mcp_config.json` through its MCP settings. See [Windsurf MCP documentation](https://docs.windsurf.com/windsurf/cascade/mcp).
 
-If you prefer a global install for faster startup:
+### VS Code / GitHub Copilot
 
-```bash
-npm install -g opencode-mcp
-```
-
-Then use `opencode-mcp` directly in your config:
+Use `.vscode/mcp.json` in the workspace, or run **MCP: Open User Configuration** for a user-level file. The key is `servers`:
 
 ```json
 {
-  "mcpServers": {
+  "servers": {
     "opencode": {
-      "command": "opencode-mcp"
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "opencode-mcp"]
     }
   }
 }
 ```
 
-## Permissions (Headless Mode)
+See [VS Code MCP setup](https://code.visualstudio.com/docs/agent-customization/mcp-servers). Client-specific secret inputs can be used instead of committing credentials in JSON.
 
-In headless mode, OpenCode may pause sessions waiting for permission to use tools (file writes, shell commands, etc.). This blocks progress silently.
+### Continue
 
-**Recommended: Auto-allow all permissions** by adding to your `opencode.json`:
+Create `.continue/mcpServers/opencode.yaml` in your workspace:
+
+```yaml
+name: OpenCode
+version: 1.0.0
+schema: v1
+mcpServers:
+  - name: opencode
+    command: npx
+    args: ["-y", "opencode-mcp"]
+```
+
+Use Agent mode. See [Continue MCP configuration](https://docs.continue.dev/reference) and [workspace configuration](https://docs.continue.dev/guides/configuring-models-rules-tools).
+
+### Zed
+
+Use **Settings → AI → MCP Servers → Add Local Server**, or edit the settings file:
 
 ```json
 {
-  "permission": "allow"
-}
-```
-
-Or set it at runtime:
-
-```
-opencode_config_update({ config: { permission: "allow" } })
-```
-
-If you prefer manual control, use the permission tools to detect and unblock stuck sessions:
-
-| Tool | Description |
-|---|---|
-| `opencode_permission_list` | List all pending permission requests across sessions |
-| `opencode_session_permission` | Reply to a permission request (`once`, `always`, `reject`) |
-
-## Auto-Start
-
-By default, the MCP server connects to an existing OpenCode server. Start `opencode serve --port 4096` yourself, or start the TUI with `opencode --port 4096` to share its server. Set `OPENCODE_BASE_URL` if using another port.
-
-To explicitly allow MCP to launch a separate local server:
-
-```json
-{
-  "env": {
-    "OPENCODE_AUTO_SERVE": "true"
+  "context_servers": {
+    "opencode": {
+      "command": "npx",
+      "args": ["-y", "opencode-mcp"],
+      "env": {}
+    }
   }
 }
 ```
 
-## Manual OpenCode Server Setup
+See [Zed MCP configuration](https://zed.dev/docs/ai/mcp). The command is a string; the earlier nested `command.path` example is obsolete.
+
+### Amazon Q Developer
+
+Open the tools/MCP panel, add a **STDIO** server named `opencode`, set command `npx`, and arguments `-y opencode-mcp`. Choose local or global scope. The current IDE UI stores these settings in `.amazonq/default.json` or `~/.aws/amazonq/default.json`; see [Amazon Q configuration](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/mcp-ide.html).
+
+### Cline
+
+Use Cline's MCP server settings to add a stdio server with command `npx` and arguments `-y opencode-mcp`.
+
+## Required Input and Permissions
+
+OpenCode can pause a session for permission or a question. Async observation reports `input_required`; it does not treat the pause as successful completion. Use the returned job ID with `opencode_job_input`, or use the lower-level tools:
+
+| Tool | Purpose |
+|---|---|
+| `opencode_permission_list` | Inspect pending permission requests in a project |
+| `opencode_session_permission` | Reply `once`, `always`, or `reject` |
+| `opencode_question_list` | Inspect pending questions |
+| `opencode_question_reply` | Provide selected answers |
+| `opencode_question_reject` | Dismiss a pending question |
+
+When supported by the client, job input can present an interactive request. These tools never silently approve permissions. Set a deliberate permission policy in the project's `opencode.json`; blanket `"permission": "allow"` is an optional policy choice, not a prerequisite for headless use.
+
+## Server Lifecycle
 
 Start a server explicitly:
 
 ```bash
-# Default (no auth, port 4096)
-opencode serve
-
-# Custom port
-opencode serve --port 8080
-
-# With authentication (optional)
-OPENCODE_SERVER_USERNAME=myuser OPENCODE_SERVER_PASSWORD=mypass opencode serve
+opencode serve --hostname 127.0.0.1 --port 4096
 ```
 
-The server exposes an OpenAPI 3.1 spec at `http://<host>:<port>/doc`.
+Or share the TUI's server by starting it with `opencode --port 4096`. For custom flags, start OpenCode manually. `OPENCODE_SERVE_ARGS` is unsupported by the SDK launcher.
 
+To opt in to a separate local child server, add `"OPENCODE_AUTO_SERVE": "true"` under your MCP server's `env`. Automatic startup accepts loopback HTTP endpoints only and shuts down only the child it launched. An existing external server remains running when the MCP client disconnects.
 
-When other TUI instances are running, prefer a shared, explicitly configured server. Issue #18 reports hangs with a second server sharing the same OpenCode storage. The underlying storage cause has not been confirmed. The MCP does not scan processes or choose an arbitrary TUI instance. Auto-start only supports loopback HTTP endpoints, and only child processes launched by this MCP are stopped on disconnect.
-
-`OPENCODE_SERVE_ARGS` is not supported by the SDK launcher. Start OpenCode manually when custom CLI flags are needed.
+When other TUI instances are running, prefer a shared explicitly configured server. [Issue #18](https://github.com/AlaeddineMessadi/opencode-mcp/issues/18) reports hangs when a second server shares OpenCode storage; the underlying cause has not been confirmed. MCP does not scan processes to select a TUI.

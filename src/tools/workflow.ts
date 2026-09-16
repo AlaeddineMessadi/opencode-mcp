@@ -4,8 +4,11 @@
  */
 
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, type ToolContext } from "../mcp-server.js";
 import { OpenCodeClient } from "../client.js";
+import { JobService, observeSession, type JobSnapshot } from "../jobs.js";
+import { createRequestContext, abortableSleep, withAbort } from "../async.js";
+import { dispatchShape, runShape } from "../job-contract.js";
 import {
   formatMessageResponse,
   formatMessageList,
@@ -20,12 +23,53 @@ import {
   toolError,
   directoryParam,
   readOnly,
+  outputFormatParam,
 } from "../helpers.js";
+
+function jobResult(snapshot: JobSnapshot, note = "", extra: Record<string, unknown> = {}) {
+  const lines = [snapshot.directory ? `Directory: ${snapshot.directory}` : "", snapshot.sessionId ? `Session: ${snapshot.sessionId}` : "",
+    snapshot.jobId ? `Job: ${snapshot.jobId}` : "", `Status: ${snapshot.status}`].filter(Boolean);
+  if (snapshot.status === "completed") lines.push("Session completed.");
+  if (snapshot.status === "input_required") lines.push("Input required. Inspect pending permissions and questions before continuing.");
+  if (snapshot.error) lines.push(`Error: ${typeof snapshot.error === "string" ? snapshot.error : JSON.stringify(snapshot.error)}`);
+  if (note) lines.push(note);
+  if (snapshot.text) lines.push(snapshot.text);
+  return toolResult(lines.join("\n\n"), snapshot.status === "failed", { ...snapshot, ...extra });
+}
+
+/** A wait observes a remote job; cancelling observation must not abort that job. */
+async function waitForSnapshot(
+  read: (options: { signal: AbortSignal; deadline: number }) => Promise<JobSnapshot>,
+  initial: JobSnapshot, seconds: number, interval: number, extra?: ToolContext,
+) {
+  let snapshot = initial;
+  const timeoutNote = "Timeout: session still running or its outcome is unknown. Use opencode_check or opencode_conversation to check progress, opencode_wait to wait longer, or opencode_session_abort to stop it.";
+  if (seconds === 0) return jobResult(snapshot, timeoutNote, { timedOut: true });
+  const context = createRequestContext({ signal: extra?.signal, timeout: seconds * 1000 });
+  try {
+    while (true) {
+      snapshot = await withAbort(read(context), context.signal);
+      if (["completed", "failed", "cancelled", "input_required"].includes(snapshot.status)) return jobResult(snapshot);
+      await abortableSleep(Math.min(interval, Math.max(0, context.deadline - Date.now())), context.signal);
+    }
+  } catch (error) {
+    if (context.signal.aborted) {
+      if (extra?.signal?.aborted) return jobResult(snapshot, "Observation cancelled. The remote session may still be running.", { observationCancelled: true });
+      return jobResult(snapshot, timeoutNote, { timedOut: true });
+    }
+    return jobResult({ ...snapshot, status: "unknown", error: error instanceof Error ? error.message : String(error) });
+  } finally {
+    context.dispose();
+  }
+}
 
 export function registerWorkflowTools(
   server: McpServer,
   client: OpenCodeClient,
+  jobs?: JobService,
 ) {
+  // Standalone registration (including unit clients) never writes the user's store.
+  const service = jobs ?? new JobService(client, { storeRoot: null });
   // ─── Setup / onboarding ───────────────────────────────────────────
   server.tool(
     "opencode_setup",
@@ -200,7 +244,7 @@ export function registerWorkflowTools(
           tips.push("**You need to configure a provider first.** Options:");
           tips.push("1. Set an API key: `opencode_auth_set` with providerId (e.g. 'anthropic', 'openai', 'google')");
           tips.push("2. Set an env var (e.g. `OPENROUTER_API_KEY`, `HF_TOKEN`, `ANTHROPIC_API_KEY`) and restart opencode");
-          tips.push("3. Try **firmware** — it has 23 free models, no API key needed. Use `opencode_ask` with `providerID: 'firmware'`");
+          tips.push("3. Use `opencode_provider_models` to inspect available models and choose one supported by your configured provider.");
         } else {
           // Providers ready — guide to first task
           tips.push("**You're ready to go!** Try:");
@@ -247,15 +291,18 @@ export function registerWorkflowTools(
         .string()
         .optional()
         .describe("Optional system prompt override"),
+      format: outputFormatParam,
       directory: directoryParam,
     },
-    async ({ prompt, title, providerID, modelID, variant, agent, system, directory }) => {
+    async ({ prompt, title, providerID, modelID, variant, agent, system, format, directory }, extra) => {
+      let sessionId: string | undefined;
       try {
         // 1. Create session
         const session = (await client.post("/session", {
           title: title ?? prompt.slice(0, 80),
-        }, { directory })) as Record<string, unknown>;
-        const sessionId = session.id as string;
+        }, { directory, ...(extra?.signal ? { signal: extra.signal } : {}) })) as Record<string, unknown>;
+        sessionId = session.id as string;
+        if (!sessionId) throw new Error("OpenCode returned a session without an ID");
 
         // 2. Send prompt
         const body: Record<string, unknown> = {
@@ -266,11 +313,12 @@ export function registerWorkflowTools(
         if (variant) body.variant = variant;
         if (agent) body.agent = agent;
         if (system) body.system = system;
+        if (format) body.format = format;
 
         const response = await client.post(
           `/session/${sessionId}/message`,
           body,
-          { directory },
+          { directory, ...(extra?.signal ? { signal: extra.signal } : {}) },
         );
 
         // 3. Analyze for auth / empty response issues
@@ -284,9 +332,10 @@ export function registerWorkflowTools(
         if (analysis.warning) {
           parts.push(`\n--- WARNING ---\n${analysis.warning}`);
         }
-        return toolResult(parts.join("\n\n"), analysis.hasError);
+        return toolResult(parts.join("\n\n"), analysis.hasError, { sessionId, directory, data: response });
       } catch (e) {
-        return toolError(e);
+        const result = toolError(e);
+        return { ...result, content: [{ type: "text" as const, text: `${sessionId ? `Session: ${sessionId}\n` : ""}${result.content[0].text}` }], structuredContent: { sessionId, directory } };
       }
     },
   );
@@ -302,9 +351,10 @@ export function registerWorkflowTools(
       modelID: z.string().optional().describe("Model ID"),
       variant: z.string().optional().describe("Model variant"),
       agent: z.string().optional().describe("Agent to use"),
+      format: outputFormatParam,
       directory: directoryParam,
     },
-    async ({ sessionId, prompt, providerID, modelID, variant, agent, directory }) => {
+    async ({ sessionId, prompt, providerID, modelID, variant, agent, format, directory }, extra) => {
       try {
         const body: Record<string, unknown> = {
           parts: [{ type: "text", text: prompt }],
@@ -313,11 +363,12 @@ export function registerWorkflowTools(
         if (model) body.model = model;
         if (variant) body.variant = variant;
         if (agent) body.agent = agent;
+        if (format) body.format = format;
 
         const response = await client.post(
           `/session/${sessionId}/message`,
           body,
-          { directory },
+          { directory, ...(extra?.signal ? { signal: extra.signal } : {}) },
         );
 
         const analysis = analyzeMessageResponse(response);
@@ -334,9 +385,11 @@ export function registerWorkflowTools(
         return toolResult(
           parts.join("\n\n") || "Empty response.",
           analysis.hasError,
+          { sessionId, directory, data: response },
         );
       } catch (e) {
-        return toolError(e);
+        const result = toolError(e);
+        return { ...result, content: [{ type: "text" as const, text: `Session: ${sessionId}\n${result.content[0].text}` }], structuredContent: { sessionId, directory } };
       }
     },
   );
@@ -366,7 +419,7 @@ export function registerWorkflowTools(
         const formatted = formatMessageList(
           messages as unknown[],
         );
-        return toolResult(formatted);
+        return toolResult(formatted, false, { sessionId, data: messages });
       } catch (e) {
         return toolError(e);
       }
@@ -495,65 +548,31 @@ export function registerWorkflowTools(
     },
   );
 
-  // ─── Wait for async session to complete ───────────────────────────
+  // ─── Wait for an observed session or durable job ───────────────────
   server.tool(
     "opencode_wait",
-    "Poll a session until it finishes processing. Use after opencode_message_send_async to wait for the AI to complete its response. Sends progress notifications while waiting. If timeout is reached, returns a progress report (not an error). For long tasks, consider using opencode_session_todo to check progress instead of blocking.",
+    "Wait for a session or durable job. Returns completed, failed, input_required, or a resumable timeout. Cancelling this wait stops observation; use job_cancel or session_abort to stop OpenCode.",
     {
-      sessionId: z.string().describe("Session ID to wait on"),
-      timeoutSeconds: z
-        .number()
-        .optional()
-        .describe("Max seconds to wait (default: 120). Set higher (300-600) for complex tasks."),
-      pollIntervalMs: z
-        .number()
-        .optional()
-        .describe("Polling interval in ms (default: 2000)"),
+      sessionId: z.string().optional().describe("Session ID (required unless jobId is supplied)"),
+      jobId: z.string().optional().describe("Durable job ID returned by opencode_fire or opencode_run"),
+      messageId: z.string().optional().describe("Submitted user message ID to correlate the exact response"),
+      timeoutSeconds: z.number().nonnegative().max(86400).optional().describe("Maximum seconds to wait (default 120); timeout is resumable"),
+      pollIntervalMs: z.number().int().min(10).max(60000).optional().describe("Polling interval in milliseconds (default 2000)"),
       directory: directoryParam,
     },
-    async ({ sessionId, timeoutSeconds, pollIntervalMs, directory }) => {
+    readOnly,
+    async ({ sessionId, jobId, messageId, timeoutSeconds, pollIntervalMs, directory }, extra) => {
       try {
-        const timeout = (timeoutSeconds ?? 120) * 1000;
-        const interval = pollIntervalMs ?? 2000;
-        const start = Date.now();
-
-        while (Date.now() - start < timeout) {
-          const statuses = (await client.get("/session/status", undefined, directory)) as Record<
-            string,
-            unknown
-          >;
-          const status = resolveSessionStatus(statuses[sessionId]);
-
-          if (status === "idle" || status === "completed") {
-            // Fetch latest messages
-            const messages = await client.get(
-              `/session/${sessionId}/message`,
-              { limit: "1" },
-              directory,
-            );
-            const arr = messages as unknown[];
-            if (arr.length > 0) {
-              return toolResult(
-                `Session completed.\n\n${formatMessageResponse(arr[arr.length - 1])}`,
-              );
-            }
-            return toolResult("Session completed (no messages).");
-          }
-
-          if (status === "error") {
-            return toolResult(`Session ended with error status.`, true);
-          }
-
-          await new Promise((r) => setTimeout(r, interval));
-        }
-
-        return toolResult(
-          `Timeout: session still processing after ${timeoutSeconds ?? 120}s. ` +
-          `Use \`opencode_conversation\` to check progress, or \`opencode_session_abort\` to stop it.`,
-          true,
+        directory = normalizeDirectory(directory);
+        if (!sessionId && !jobId) throw new Error("Provide sessionId or jobId to wait for a task.");
+        const initial: JobSnapshot = { sessionId: sessionId ?? "", jobId, messageId, directory, status: "unknown" };
+        return await waitForSnapshot(
+          options => jobId ? service.get(jobId, options) : observeSession(client, sessionId!, directory, messageId, options),
+          initial, timeoutSeconds ?? 120, pollIntervalMs ?? 2000, extra,
         );
-      } catch (e) {
-        return toolError(e);
+      } catch (error) {
+        const result = toolError(error);
+        return { ...result, structuredContent: { sessionId, jobId, messageId, directory, status: "unknown" } };
       }
     },
   );
@@ -590,35 +609,44 @@ export function registerWorkflowTools(
     "Quick-test whether a provider is working. Creates a temporary session, sends a trivial prompt, checks the response, and cleans up. Great for debugging auth issues.",
     {
       providerId: z.string().describe("Provider ID to test (e.g. 'anthropic', 'openrouter')"),
-      modelID: z.string().optional().describe("Specific model ID to test. If omitted, uses provider default."),
+      modelID: z.string().optional().describe("Specific model ID to test. If omitted, discovers the provider default or first available model."),
       variant: z.string().optional().describe("Model variant"),
+      format: outputFormatParam,
       directory: directoryParam,
     },
-    async ({ providerId, modelID, variant, directory }) => {
+    async ({ providerId, modelID, variant, format, directory }, extra) => {
       let sessionId: string | null = null;
       try {
+        if (!modelID) {
+          const raw = await client.get("/provider", undefined, directory) as Record<string, unknown>;
+          const providers = Array.isArray(raw) ? raw : Array.isArray(raw?.all) ? raw.all : [];
+          const provider = providers.find((p: Record<string, unknown>) => p.id === providerId);
+          const models = provider?.models;
+          const choices = Array.isArray(models)
+            ? models.map((m: Record<string, unknown>) => m.id).filter((id: unknown): id is string => typeof id === "string")
+            : models && typeof models === "object" ? Object.keys(models) : [];
+          const preferred = (raw?.default as Record<string, string> | undefined)?.[providerId];
+          modelID = preferred && choices.includes(preferred) ? preferred : choices[0];
+          if (!modelID) throw new Error(`No model discovered for provider "${providerId}". Specify modelID from opencode_provider_models.`);
+        }
         // 1. Create a temporary test session
         const session = (await client.post("/session", {
           title: `[test] ${providerId}`,
-        }, { directory })) as Record<string, unknown>;
+        }, { directory, ...(extra?.signal ? { signal: extra.signal } : {}) })) as Record<string, unknown>;
         sessionId = session.id as string;
 
         // 2. Send a trivial prompt
         const body: Record<string, unknown> = {
           parts: [{ type: "text", text: "Say hello in one word." }],
         };
-        // Use the specified model, or let the provider pick its default
-        if (modelID) {
-          body.model = { providerID: providerId, modelID };
-        } else {
-          body.providerID = providerId;
-        }
+        body.model = { providerID: providerId, modelID };
         if (variant) body.variant = variant;
+        if (format) body.format = format;
 
         const response = await client.post(
           `/session/${sessionId}/message`,
           body,
-          { directory },
+          { directory, ...(extra?.signal ? { signal: extra.signal } : {}) },
         );
 
         // 3. Analyze the response
@@ -635,12 +663,15 @@ export function registerWorkflowTools(
           return toolResult(
             `Provider "${providerId}" FAILED.\n\n${reason}`,
             true,
+            { sessionId, directory, providerId, modelID, data: response },
           );
         }
 
         const preview = formatted.length > 200 ? formatted.slice(0, 200) + "..." : formatted;
         return toolResult(
           `Provider "${providerId}" is working.\n\nResponse: ${preview}`,
+          false,
+          { sessionId, directory, providerId, modelID, data: response },
         );
       } catch (e) {
         // Cleanup on error
@@ -649,273 +680,91 @@ export function registerWorkflowTools(
             await client.delete(`/session/${sessionId}`, undefined, directory);
           } catch { /* best-effort cleanup */ }
         }
-        return toolError(e);
+        return { ...toolError(e), structuredContent: { sessionId, directory, providerId, modelID } };
       }
     },
   );
 
-  // ─── Run: create session + async send + poll until done ──────────
+  // ─── Durable dispatch and observation ─────────────────────────────
   server.tool(
     "opencode_run",
-    "Send a task to OpenCode and wait for completion. Combines session creation, async prompt, and polling into a single tool call. Use this instead of the manual opencode_message_send_async + opencode_wait pattern.",
-    {
-      prompt: z.string().describe("The task or instruction to send"),
-      sessionId: z
-        .string()
-        .optional()
-        .describe("Existing session ID to continue (omit to create a new session)"),
-      title: z.string().optional().describe("Session title (only for new sessions)"),
-      providerID: z.string().optional().describe("Provider ID (e.g. 'anthropic')"),
-      modelID: z.string().optional().describe("Model ID (e.g. 'claude-opus-4-6')"),
-      variant: z.string().optional().describe("Model variant"),
-      agent: z.string().optional().describe("Agent to use"),
-      maxDurationSeconds: z
-        .number()
-        .optional()
-        .describe("Max seconds to wait for completion (default: 600 = 10 minutes)"),
-      directory: directoryParam,
-    },
-    async ({ prompt, sessionId, title, providerID, modelID, variant, agent, maxDurationSeconds, directory }) => {
+    "Send a task and wait for its correlated response. Returns a durable job ID; an observation timeout leaves the remote job running and can be resumed with opencode_wait.",
+    runShape,
+    async ({ prompt, sessionId, title, providerID, modelID, variant, agent, format, maxDurationSeconds, directory }, extra) => {
+      let snapshot: JobSnapshot = { sessionId: sessionId ?? "", directory, status: "unknown" };
+      const seconds = maxDurationSeconds ?? 600;
+      const context = createRequestContext({ signal: extra?.signal, timeout: seconds > 0 ? seconds * 1000 : 120000 });
       try {
-        // 1. Create or reuse session
-        let sid = sessionId;
-        if (!sid) {
-          const session = (await client.post("/session", {
-            title: title ?? prompt.slice(0, 80),
-          }, { directory })) as Record<string, unknown>;
-          sid = session.id as string;
-        }
-
-        // 2. Send async (fire-and-forget)
-        const body: Record<string, unknown> = {
-          parts: [{ type: "text", text: prompt }],
-          noReply: false,
-        };
-        const model = applyModelDefaults(providerID, modelID);
-        if (model) body.model = model;
-        if (variant) body.variant = variant;
-        if (agent) body.agent = agent;
-
-        await client.post(`/session/${sid}/prompt_async`, body, { directory });
-
-        // Session-directory consistency note
-        const dirNote = sessionId && directory
-          ? `\n_Note: Using session ${sid} in directory ${directory}. Ensure this session belongs to this project._`
-          : "";
-
-        // 3. Poll until done
-        const timeout = (maxDurationSeconds ?? 600) * 1000;
-        const interval = 3000;
-        const start = Date.now();
-        const dirLabel = directory ? `Directory: ${directory}\n` : "";
-
-        while (Date.now() - start < timeout) {
-          await new Promise((r) => setTimeout(r, interval));
-
-          const statuses = (await client.get("/session/status", undefined, directory)) as Record<string, unknown>;
-          const status = resolveSessionStatus(statuses[sid!]);
-
-          if (status === "idle" || status === "completed") {
-            // Get final response
-            const messages = await client.get(
-              `/session/${sid}/message`,
-              { limit: "1" },
-              directory,
-            );
-            const arr = messages as unknown[];
-            const lastMsg = arr.length > 0 ? formatMessageResponse(arr[arr.length - 1]) : "";
-
-            // Get todo summary
-            let todoSummary = "";
-            try {
-              const todos = await client.get(`/session/${sid}/todo`, undefined, directory);
-              if (Array.isArray(todos) && todos.length > 0) {
-                const completed = todos.filter((t: any) => t.status === "completed").length;
-                todoSummary = `\nTasks: ${completed}/${todos.length} completed`;
-              }
-            } catch { /* non-critical */ }
-
-            return toolResult(
-              `${dirLabel}Session: ${sid}\nStatus: completed${todoSummary}${dirNote}\n\n${lastMsg || "(no response text)"}`,
-            );
-          }
-
-          if (status === "error") {
-            return toolResult(
-              `${dirLabel}Session: ${sid}\nStatus: error${dirNote}\n\nThe session ended with an error. Use \`opencode_conversation({sessionId: "${sid}"})\` to see what happened.`,
-              true,
-            );
-          }
-        }
-
-        // Timeout — return progress report
-        let todoProgress = "";
-        try {
-          const todos = await client.get(`/session/${sid}/todo`, undefined, directory);
-          if (Array.isArray(todos) && todos.length > 0) {
-            const completed = todos.filter((t: any) => t.status === "completed").length;
-            const inProgress = todos.filter((t: any) => t.status === "in_progress").length;
-            todoProgress = `\nTasks: ${completed}/${todos.length} completed, ${inProgress} in progress`;
-          }
-        } catch { /* non-critical */ }
-
-        return toolResult(
-          `${dirLabel}Session: ${sid}\nStatus: still running after ${maxDurationSeconds ?? 600}s${todoProgress}${dirNote}\n\n` +
-          `The session is still working. Options:\n` +
-          `- \`opencode_check({sessionId: "${sid}"})\` — quick progress check\n` +
-          `- \`opencode_wait({sessionId: "${sid}", timeoutSeconds: 300})\` — wait longer\n` +
-          `- \`opencode_session_abort({id: "${sid}"})\` — stop the session`,
-          true,
-        );
-      } catch (e) {
-        return toolError(e);
+        snapshot = await service.start({ prompt, sessionId, title, directory,
+          model: applyModelDefaults(providerID, modelID), variant, agent, format }, context);
+        if (["failed", "unknown", "cancelled", "input_required"].includes(snapshot.status)) return jobResult(snapshot);
+        const remaining = seconds === 0 ? 0 : Math.max(0, (context.deadline - Date.now()) / 1000);
+        return await waitForSnapshot(options => service.get(snapshot.jobId!, options), snapshot, remaining, 1000, extra);
+      } catch (error) {
+        if (context.signal.aborted) return jobResult(snapshot, "Observation ended before dispatch could be confirmed. Check the session before retrying.", { timedOut: !extra?.signal?.aborted, observationCancelled: extra?.signal?.aborted === true });
+        return jobResult({ ...snapshot, status: "failed", error: error instanceof Error ? error.message : String(error) });
+      } finally {
+        context.dispose();
       }
     },
   );
 
-  // ─── Fire: send task and return immediately ────────────────────────
   server.tool(
     "opencode_fire",
-    "Fire-and-forget: send a task to OpenCode and return immediately. OpenCode works autonomously in the background. Use `opencode_check` to check progress anytime. Best for long-running tasks when you want to do other work in parallel.",
-    {
-      prompt: z.string().describe("The task or instruction to send"),
-      sessionId: z
-        .string()
-        .optional()
-        .describe("Existing session ID to continue (omit to create a new session)"),
-      title: z.string().optional().describe("Session title (only for new sessions)"),
-      providerID: z.string().optional().describe("Provider ID (e.g. 'anthropic')"),
-      modelID: z.string().optional().describe("Model ID (e.g. 'claude-opus-4-6')"),
-      variant: z.string().optional().describe("Model variant"),
-      agent: z.string().optional().describe("Agent to use"),
-      directory: directoryParam,
-    },
-    async ({ prompt, sessionId, title, providerID, modelID, variant, agent, directory }) => {
+    "Dispatch a durable background task and return its job, session and message IDs immediately. Use opencode_check or opencode_wait to observe; job_cancel stops the task.",
+    dispatchShape,
+    async ({ prompt, sessionId, title, providerID, modelID, variant, agent, format, directory }, extra) => {
       try {
-        // 1. Create or reuse session
-        let sid = sessionId;
-        if (!sid) {
-          const session = (await client.post("/session", {
-            title: title ?? prompt.slice(0, 80),
-          }, { directory })) as Record<string, unknown>;
-          sid = session.id as string;
-        }
-
-        // 2. Send async
-        const body: Record<string, unknown> = {
-          parts: [{ type: "text", text: prompt }],
-          noReply: false,
-        };
-        const model = applyModelDefaults(providerID, modelID);
-        if (model) body.model = model;
-        if (variant) body.variant = variant;
-        if (agent) body.agent = agent;
-
-        await client.post(`/session/${sid}/prompt_async`, body, { directory });
-
-        const dirLabel = directory ? `Directory: ${directory}\n` : "";
-        return toolResult(
-          `${dirLabel}Task dispatched to session: ${sid}\n\n` +
-          `OpenCode is now working autonomously. Use these tools to monitor:\n` +
-          `- \`opencode_check({sessionId: "${sid}"})\` — quick progress check\n` +
-          `- \`opencode_session_todo({id: "${sid}"})\` — see the agent's task list\n` +
-          `- \`opencode_wait({sessionId: "${sid}"})\` — block until done\n` +
-          `- \`opencode_review_changes({sessionId: "${sid}"})\` — see file changes after completion`,
-        );
-      } catch (e) {
-        return toolError(e);
+        const snapshot = await service.start({ prompt, sessionId, title, directory,
+          model: applyModelDefaults(providerID, modelID), variant, agent, format }, { signal: extra?.signal });
+        return jobResult(snapshot, snapshot.status === "accepted"
+          ? `Task dispatched. Use opencode_check({jobId: "${snapshot.jobId}"}) or opencode_wait({jobId: "${snapshot.jobId}"}) to monitor it.` : "");
+      } catch (error) {
+        return jobResult({ sessionId: sessionId ?? "", directory, status: "failed", error: error instanceof Error ? error.message : String(error) });
       }
     },
   );
 
-  // ─── Check: cheap progress report for a session ────────────────────
+  // ─── Check: summary metadata, never full patches ────────────────────
   server.tool(
     "opencode_check",
-    "Get a compact cached progress report for a session. Much cheaper than opencode_conversation or opencode_wait — returns status, todos, and file counts in a single call. Use this to monitor sessions launched with opencode_fire.",
+    "Get current task status, pending input, todos and file counts. Uses session summary metadata instead of fetching patches. Pass jobId for exact durable turn correlation; detailed includes response text.",
     {
-      sessionId: z.string().describe("Session ID to check"),
-      detailed: z
-        .boolean()
-        .optional()
-        .describe("If true, include the last message text (default: false)"),
+      sessionId: z.string().optional().describe("Session ID (required unless jobId is supplied)"),
+      jobId: z.string().optional().describe("Durable job ID"),
+      messageId: z.string().optional().describe("Submitted user message ID to correlate"),
+      detailed: z.boolean().optional().describe("Include response text (default false)"),
       directory: directoryParam,
     },
     readOnly,
-    async ({ sessionId, detailed, directory }) => {
+    async ({ sessionId, jobId, messageId, detailed, directory }, extra) => {
       try {
-        // Validate directory early — before .catch(() => null) swallows the error
-        directory = normalizeDirectory(directory) as typeof directory;
-
-        // Parallel fetch: status, todos, session info, optionally last message
-        const promises: Promise<unknown>[] = [
-          client.get("/session/status", undefined, directory),
-          client.get(`/session/${sessionId}/todo`, undefined, directory).catch(() => null),
-          client.get(`/session/${sessionId}`, undefined, directory).catch(() => null),
-        ];
-        if (detailed) {
-          promises.push(
-            client.get(`/session/${sessionId}/message`, { limit: "1" }, directory).catch(() => null),
-          );
-        }
-
-        const [statuses, todos, sessionInfo, lastMessages] = await Promise.all(promises) as [
-          Record<string, unknown>,
-          Array<Record<string, unknown>> | null,
-          Record<string, unknown> | null,
-          unknown[] | null,
-        ];
-
-        const status = resolveSessionStatus(statuses[sessionId]);
+        directory = normalizeDirectory(directory);
+        if (!sessionId && !jobId) throw new Error("Provide sessionId or jobId to check a task.");
+        const options = { signal: extra?.signal };
+        const snapshot = jobId ? await service.get(jobId, options) : await observeSession(client, sessionId!, directory, messageId, options);
+        const sid = snapshot.sessionId;
+        if (!sid) return jobResult(snapshot, "Session creation could not be confirmed. Inspect this job before retrying.");
+        const project = snapshot.directory ?? directory;
+        const todos = await client.get(`/session/${sid}/todo`, undefined, project, options).catch(() => null) as Array<Record<string, unknown>> | null;
+        const session = snapshot.session as { title?: string; summary?: { files?: number } } | undefined;
         const lines: string[] = [];
-
-        // Session title
-        const title = sessionInfo?.title ?? "(untitled)";
-        lines.push(`## ${title} [${sessionId}]`);
-        lines.push(`Status: **${status}**`);
-
-        // Todos
-        if (Array.isArray(todos) && todos.length > 0) {
-          const completed = todos.filter((t) => t.status === "completed").length;
-          const inProgress = todos.filter((t) => t.status === "in_progress").length;
-          const pending = todos.length - completed - inProgress;
-          lines.push(`Tasks: ${completed}/${todos.length} completed` +
-            (inProgress > 0 ? `, ${inProgress} in progress` : "") +
-            (pending > 0 ? `, ${pending} pending` : ""));
-
-          // Show current task
-          const current = todos.find((t) => t.status === "in_progress");
-          if (current) {
-            lines.push(`Current: ${current.content ?? current.title ?? "(unknown)"}`);
-          }
+        if (session?.title) lines.push(`Title: ${session.title}`);
+        if (Array.isArray(todos) && todos.length) {
+          const completed = todos.filter(t => t.status === "completed").length;
+          const inProgress = todos.filter(t => t.status === "in_progress").length;
+          lines.push(`Tasks: ${completed}/${todos.length} completed, ${inProgress} in progress`);
+          const current = todos.find(t => t.status === "in_progress");
+          if (current) lines.push(`Current: ${current.content ?? current.title ?? "(unknown)"}`);
         }
-
-        // File changes count (from diff endpoint)
-        try {
-          const diffs = await client.get(`/session/${sessionId}/diff`, undefined, directory) as unknown[];
-          if (Array.isArray(diffs) && diffs.length > 0) {
-            lines.push(`Files changed: ${diffs.length}`);
-          }
-        } catch { /* non-critical */ }
-
-        // Last message (if detailed)
-        if (detailed && Array.isArray(lastMessages) && lastMessages.length > 0) {
-          const lastMsg = formatMessageResponse(lastMessages[lastMessages.length - 1]);
-          if (lastMsg) {
-            const truncated = lastMsg.length > 500 ? lastMsg.slice(0, 497) + "..." : lastMsg;
-            lines.push(`\n### Last message\n${truncated}`);
-          }
-        }
-
-        // Suggest next action based on status
-        if (status === "idle" || status === "completed") {
-          lines.push(`\nDone! Use \`opencode_review_changes({sessionId: "${sessionId}"})\` to see all changes.`);
-        } else if (status === "error") {
-          lines.push(`\nFailed. Use \`opencode_conversation({sessionId: "${sessionId}"})\` to see what went wrong.`);
-        }
-
-        return toolResult(lines.join("\n"));
-      } catch (e) {
-        return toolError(e);
+        if (typeof session?.summary?.files === "number") lines.push(`Files changed: ${session.summary.files}`);
+        if (snapshot.status === "completed") lines.push("Done! Use opencode_review_changes to see changes.");
+        if (detailed && snapshot.text) lines.push(`### Last message\n${snapshot.text.slice(0, 500)}`);
+        // Avoid duplicating a potentially long final response in compact monitoring.
+        return jobResult({ ...snapshot, text: undefined, result: detailed ? snapshot.result : undefined }, lines.join("\n"), { todos });
+      } catch (error) {
+        const result = toolError(error);
+        return { ...result, structuredContent: { sessionId, jobId, messageId, directory, status: "unknown" } };
       }
     },
   );

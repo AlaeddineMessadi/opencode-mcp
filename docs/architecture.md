@@ -2,140 +2,77 @@
 
 ## Overview
 
-opencode-mcp is a **stdio-based MCP server** that bridges MCP clients to the OpenCode headless HTTP API.
-
-```
-┌─────────────┐     stdio      ┌───────────────┐     HTTP      ┌─────────────────────────┐
-│  MCP Client  │ <────────────> │  opencode-mcp  │ <──────────> │  OpenCode Server        │
-│  (Claude,    │   JSON-RPC     │  (this package) │   REST API   │  (SDK child process,   │
-│   Cursor)    │                │                 │              │   or external `opencode │
-│              │                │                 │              │   serve` you launched)  │
-└─────────────┘                └───────────────┘              └─────────────────────────┘
+```text
+MCP client ── stdio ── opencode-mcp ── HTTP / SSE ── OpenCode server
+                            │
+                            └── local job metadata and result storage
 ```
 
-## Project Structure
+opencode-mcp is a stdio bridge. OpenCode owns coding sessions and model execution. The MCP process owns tool registration, response formatting, job observation, and its local job records. A remote OpenCode server can be used through HTTP; the MCP-facing transport remains stdio.
 
-```
-src/
-├── index.ts              Main entry point: creates server, registers everything
-├── server-manager.ts     Probe server + opt-in child-process start via SDK
-├── client.ts             HTTP client with retry, SSE, error categorization
-├── helpers.ts            Response formatting + tool annotation constants
-├── resources.ts          MCP Resources (10 browseable data endpoints)
-├── prompts.ts            MCP Prompts (6 guided workflow templates)
-└── tools/
-    ├── workflow.ts       High-level workflow tools (13): start here
-    ├── session.ts        Session lifecycle management (20)
-    ├── message.ts        Message/prompt operations (6)
-    ├── file.ts           File and search operations (6)
-    ├── tui.ts            TUI remote control (9)
-    ├── config.ts         Configuration management (3)
-    ├── provider.ts       Provider and authentication (6)
-    ├── misc.ts           System, agents, LSP, MCP, logging (12)
-    ├── events.ts         SSE event polling (1)
-    ├── global.ts         Health check (1)
-    └── project.ts        Project operations (3): list, init, current
-```
+## Main Components
 
-## Three MCP Primitives
+| Area | Responsibility |
+|---|---|
+| Entry point and MCP adapter | Register the catalog, select a profile, negotiate protocol support, manage stdio |
+| `client.ts` | SDK-backed HTTP requests, error handling, bounded retries, SSE, directory routing |
+| `server-manager.ts` | Health probe, optional local child startup, owned-child shutdown |
+| `async.ts` | Shared request deadlines, cancellation, and abortable waits |
+| Job service and job tools | Persist handles/results, correlate completion, observe, cancel, and request required input |
+| `helpers.ts` | Input helpers, result formatting, redaction, truncation |
+| `tools/` | OpenCode API tools and combined workflows |
+| `resources.ts`, `prompts.ts` | Data reads and reusable workflow instructions |
 
-| Primitive | Count | Purpose |
-|---|---|---|
-| **Tools** | 80 | Actions the LLM can take |
-| **Resources** | 10 | Data the LLM can browse |
-| **Prompts** | 6 | Guided multi-step workflows |
+The full catalog is available by default. The essential profile advertises a smaller group of common workflows. Both profiles use the same implementations and OpenCode permission model.
 
-## Key Design Decisions
+## Async State and Recovery
 
-### Layered Tool Architecture
+The async workflow distinguishes submission from completion. A job can be `accepted`, `running`, `input_required`, `completed`, `failed`, `cancelled`, or `unknown`. Completion is correlated with the submitted work and an assistant message; an omitted idle entry in OpenCode's status map is not sufficient evidence by itself.
 
-Tools are in two layers:
+`opencode_fire` returns promptly after dispatch. `opencode_check` observes work; `opencode_wait` and `opencode_run` wait within a bounded observation period. Expiring that period returns progress with a timeout indication. It does not abort the OpenCode session. Requests for permission or answers surface as `input_required` so the caller can respond explicitly. Cancellation of an observation stops waiting; use the job-cancel or session-abort tool to stop remote work.
 
-- **Low-level**: 1:1 mapping to OpenCode API endpoints (session, message, file, etc.)
-- **Workflow**: Composite operations that combine multiple calls (`opencode_ask`, `opencode_run`, `opencode_fire`, etc.)
+Local job handles and results persist across MCP restarts, with a default 24-hour retention period measured from creation. Expiring a handle does not cancel the remote session. This supports rediscovery and resumed observation of existing OpenCode work, not checkpointing or restarting model execution. An ambiguous submission is not automatically resubmitted, because that could run a task twice. Backend failures remain errors rather than becoming successful completion.
 
-The workflow layer drastically reduces tool calls. Instead of "create session, send message, parse response", it's one `opencode_ask` call. For long-running tasks, `opencode_run` handles session creation + async dispatch + polling in one call. `opencode_fire` + `opencode_check` enables background work with lightweight monitoring.
+Background execution survives an MCP disconnect only while the OpenCode server remains running. An externally managed OpenCode server is left running. A child launched by `OPENCODE_AUTO_SERVE=true` is closed with the MCP process, so do not rely on that child for work that must continue after disconnect.
 
-### Tool Annotations
+### Native MCP Tasks
 
-Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`) so clients can make informed decisions about safety. Read-only tools like `opencode_check` and `opencode_context` are annotated as safe; destructive tools like `opencode_instance_dispose` are flagged.
+On protocol revision `2026-07-28`, clients advertising `io.modelcontextprotocol/tasks` in their per-request capabilities receive a native task handle from `opencode_run`. `tasks/get` retrieves status and the eventual result; `tasks/update` supplies explicit input responses; `tasks/cancel` requests cancellation. This follows the [July 2026 Tasks extension schema](https://github.com/modelcontextprotocol/ext-tasks/blob/main/schema/2026-07-28/schema.ts), rather than the earlier experimental task API. A small stdio adapter handles these extension operations; standard and legacy protocol messages use the MCP SDK v2 transport. Ordinary `fire`/`check`/`wait` calls remain available to clients without Tasks support.
 
-### Smart Response Formatting
+No task status notifications are advertised. Clients poll explicitly. There is no remote HTTP MCP transport or guarantee that a notification wakes an idle model.
 
-Raw API responses are deeply nested JSON. The `helpers.ts` module transforms these into human-readable text:
+### Interactive Input
 
-- Message parts -> extracted text, tool call summaries
-- Diffs -> formatted with file paths, add/delete counts
-- Session lists -> bullet-point format with titles and IDs
-- Large responses -> auto-truncated at 50K characters
+Job input can present pending permission or question requests through a negotiated modern client interaction. Explicit permission and question tools provide a fallback. Replies are validated and forwarded to OpenCode; the bridge does not approve permissions on the user's behalf.
 
-### Robust HTTP Client
+## Request Scope and Lifecycle
 
-`OpenCodeClient` handles:
+Project-scoped calls include an absolute `directory` on the OpenCode server. Validation rejects relative paths and NUL/CR/LF bytes, preserving POSIX, Windows drive, and UNC paths without consulting the MCP host's filesystem. OpenCode resolves actual existence and access.
 
-- **Automatic retry**: Exponential backoff for 429, 502, 503, 504
-- **Error categorization**: `OpenCodeError` with `.isTransient`, `.isNotFound`, `.isAuth`
-- **204 No Content**: Properly handled
-- **SSE streaming**: Async generator for Server-Sent Events
-- **Directory validation**: Paths are normalized (resolved to absolute, trailing slashes removed) and validated (must exist on disk) before being sent as the `x-opencode-directory` header
-- **Lazy reconnection**: If all retries fail due to connection errors (`ECONNREFUSED`, `ENOTFOUND`, etc.) and `autoServe` is enabled, the client attempts to restart the OpenCode server and retry once (up to 3 reconnection attempts per MCP session)
+Authentication routes are global. `opencode_project_init` is a separate local-filesystem operation: it accepts `path`, checks protected roots and symlinks, creates the directory if necessary, then opens it through OpenCode. It does not create remote projects.
 
-### Default Provider/Model
+On startup the process probes the configured endpoint. With automatic startup enabled, the SDK can launch `opencode serve` on a local loopback HTTP endpoint. Concurrent starts are coalesced by endpoint. Shutdown handlers stop only owned child processes; externally managed servers remain running.
 
-Tools that accept `providerID` and `modelID` apply a three-tier resolution:
+## Transport and Observation Costs
 
-1. **Explicit params**: If both are passed to the tool call, use them
-2. **Env-var defaults**: If `OPENCODE_DEFAULT_PROVIDER` and `OPENCODE_DEFAULT_MODEL` are set, use them as fallback
-3. **Server default**: If neither is available, let the OpenCode server decide (may result in empty responses if no provider is configured)
+HTTP requests share a total deadline across attempts and use cancellation-aware waits. Project event polling forwards the directory; explicitly global event polling rejects a directory to avoid ambiguous scope. Polling preserves partial errors.
 
-This is implemented via `applyModelDefaults()` in `helpers.ts`, called from all 8 tools that accept model params.
+Job observation reads bounded recent messages to correlate completion. It uses session summary counts rather than downloading full diffs on each check. This is not a promise of zero network or history reads: the first fresh observation still contacts OpenCode; already persisted terminal results can be returned locally.
 
-### Auto-Start
+## Results, Resources, and Prompts
 
-On startup, MCP probes `OPENCODE_BASE_URL/global/health` and attaches to an existing server. Startup is opt-in: `OPENCODE_AUTO_SERVE=true` allows `createOpencodeServer()` from the SDK to spawn the `opencode serve` executable as a child process. OpenCode must be on `PATH`; it binds its own HTTP port and inherits the process environment, including server authentication. Only loopback HTTP endpoints support automatic startup.
+Tools expose behavior annotations and an output schema. They retain readable text for older clients and provide `structuredContent` for machine consumption. Generic JSON responses use a `data` field; workflow responses add fields such as job/session IDs and state. Consumers should inspect `isError` and structured state rather than infer success from arbitrary text.
 
-Shutdown handlers for stdin `end`/`close`, `SIGINT`, `SIGTERM`, `SIGHUP` and `exit` close the SDK-owned child. External servers remain running. The same opt-in setting controls reconnection attempts that may launch another server.
+Sensitive configuration/provider fields are redacted. Oversized serialized responses use a valid JSON truncation envelope with a text preview instead of slicing JSON into an invalid document.
 
-Concurrent `ensureServer()` calls are coalesced per `baseUrl` via an in-flight `Map<string, Promise>` so two simultaneous tool calls during cold-start can't race into `EADDRINUSE`. Calls targeting different baseUrls each get their own startup promise.
+Static resources use the default project. Project/session resource templates encode their explicit server path in the URI. Resources have no subscription support. Prompts guide common workflows but do not themselves execute tools.
 
-## Data Flow
+## Verification
 
-### Tool Call
+Unit tests cover formatting, validation, job state, and tool behavior. Local HTTP fixtures exercise the SDK transport; stdio process tests cover protocol behavior and lifecycle. The live smoke runner creates a disposable Git project and mutates only its owned session, with inference disabled by default. See [releasing](releasing.md) for exact live-check scope and artifact verification.
 
-```
-1. MCP Client sends JSON-RPC tool call via stdio
-2. McpServer dispatches to registered handler
-3. Handler builds HTTP request
-4. OpenCodeClient makes HTTP call to OpenCode
-5. Response formatted by helpers.ts
-6. Formatted text returned as MCP tool result
-7. McpServer sends JSON-RPC response via stdio
-```
+### Shared-session cancellation
 
-### Resource Read
+OpenCode aborts a whole session. Job cancellation refuses a known newer turn, but another client can submit work between that check and the abort request. Use the default dedicated session per job when cancellation must not affect concurrent work.
 
-```
-1. Client requests resource by URI (e.g. opencode://health)
-2. Handler fetches from OpenCode via HTTP
-3. Data returned as resource content (JSON)
-```
-
-### SSE Events
-
-```
-1. opencode_events_poll opens SSE connection to /event
-2. Events collected for specified duration
-3. Connection closed, events formatted and returned
-```
-
-## Registration Pattern
-
-Each tool group is a file exporting a `register*` function that receives `(server, client)`. New tool groups can be added without touching the entry point.
-
-### Permission Handling
-
-In headless mode, OpenCode may pause sessions waiting for tool-use permissions (e.g. file writes, shell commands). This blocks progress silently. The MCP server addresses this with:
-
-- **`opencode_permission_list`**: Lists all pending permission requests across sessions so the LLM can detect and unblock stuck sessions
-- **`opencode_session_permission`**: Replies to a specific permission request with `once`, `always`, or `reject`
-- **Recommended config**: Set `"permission": "allow"` in `opencode.json` or call `opencode_config_update({ config: { permission: "allow" } })` at runtime to auto-approve all tool use in headless mode
+A native `tasks/cancel` acknowledgement records cancellation intent; it does not prove execution has stopped. Poll `tasks/get` for the eventual state, especially after a lost backend response.

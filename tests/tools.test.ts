@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { OpenCodeClient } from "../src/client.js";
+import { OpenCodeClient, OpenCodeError } from "../src/client.js";
 import { registerGlobalTools } from "../src/tools/global.js";
 import { registerWorkflowTools } from "../src/tools/workflow.js";
 import { registerConfigTools } from "../src/tools/config.js";
@@ -1382,7 +1382,7 @@ describe("Tool handlers", () => {
       registerWorkflowTools(mockServer, mockClient);
 
       const handler = tools.get("opencode_provider_test")!;
-      const result = await handler({ providerId: "anthropic" });
+      const result = await handler({ providerId: "anthropic", modelID: "test-model" });
       const text = result.content[0].text;
       expect(text).toContain("anthropic");
       expect(text).toContain("is working");
@@ -1406,7 +1406,7 @@ describe("Tool handlers", () => {
       registerWorkflowTools(mockServer, mockClient);
 
       const handler = tools.get("opencode_provider_test")!;
-      const result = await handler({ providerId: "badprovider" });
+      const result = await handler({ providerId: "badprovider", modelID: "test-model" });
       const text = result.content[0].text;
       expect(text).toContain("FAILED");
       expect(text).toContain("badprovider");
@@ -1430,7 +1430,7 @@ describe("Tool handlers", () => {
       registerWorkflowTools(mockServer, mockClient);
 
       const handler = tools.get("opencode_provider_test")!;
-      const result = await handler({ providerId: "anthropic" });
+      const result = await handler({ providerId: "anthropic", modelID: "test-model" });
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain("API timeout");
       // Should attempt cleanup
@@ -1842,9 +1842,10 @@ describe("Tool handlers", () => {
           "s1": { state: "idle" },
         });
         if (path.includes("/message")) return Promise.resolve([
-          { info: { id: "m1", role: "assistant" }, parts: [{ type: "text", text: "Done!" }] },
+          { info: { id: "m1", role: "assistant", time: { created: 1, completed: 2 } }, parts: [{ type: "text", text: "Done!" }] },
         ]);
-        return Promise.resolve({});
+        if (path === "/question" || path === "/permission") return Promise.resolve([]);
+        return Promise.resolve({ id: "s1" });
       });
       const mockClient = createMockClient({ get: getMock });
       const tools = new Map<string, Function>();
@@ -1864,9 +1865,7 @@ describe("Tool handlers", () => {
     });
 
     it("detects error from object status { state: 'error' }", async () => {
-      const getMock = vi.fn().mockResolvedValue({
-        "s1": { state: "error" },
-      });
+      const getMock = vi.fn().mockImplementation((path: string) => Promise.resolve(path === "/session/status" ? { s1: { state: "error" } } : []));
       const mockClient = createMockClient({ get: getMock });
       const tools = new Map<string, Function>();
       const mockServer = {
@@ -1878,14 +1877,12 @@ describe("Tool handlers", () => {
 
       const handler = tools.get("opencode_wait")!;
       const result = await handler({ sessionId: "s1", timeoutSeconds: 5, pollIntervalMs: 50 });
-      expect(result.content[0].text).toContain("error status");
+      expect(result.structuredContent.status).toBe("failed");
       expect(result.isError).toBe(true);
     });
 
     it("times out with actionable suggestions", async () => {
-      const getMock = vi.fn().mockResolvedValue({
-        "s1": { state: "running" },
-      });
+      const getMock = vi.fn().mockImplementation((path: string) => Promise.resolve(path === "/session/status" ? { s1: { state: "running" } } : []));
       const mockClient = createMockClient({ get: getMock });
       const tools = new Map<string, Function>();
       const mockServer = {
@@ -1896,21 +1893,23 @@ describe("Tool handlers", () => {
       registerWorkflowTools(mockServer, mockClient);
 
       const handler = tools.get("opencode_wait")!;
-      const result = await handler({ sessionId: "s1", timeoutSeconds: 1, pollIntervalMs: 200 });
+      const result = await handler({ sessionId: "s1", timeoutSeconds: 0.05, pollIntervalMs: 10 });
       const text = result.content[0].text;
       expect(text).toContain("Timeout");
       expect(text).toContain("opencode_conversation");
       expect(text).toContain("opencode_session_abort");
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent.timedOut).toBe(true);
     });
 
     it("completes when string status is 'idle'", async () => {
       const getMock = vi.fn().mockImplementation((path: string) => {
         if (path === "/session/status") return Promise.resolve({ "s1": "idle" });
         if (path.includes("/message")) return Promise.resolve([
-          { info: { id: "m1", role: "assistant" }, parts: [{ type: "text", text: "Result" }] },
+          { info: { id: "m1", role: "assistant", time: { created: 1, completed: 2 } }, parts: [{ type: "text", text: "Result" }] },
         ]);
-        return Promise.resolve({});
+        if (path === "/question" || path === "/permission") return Promise.resolve([]);
+        return Promise.resolve({ id: "s1" });
       });
       const mockClient = createMockClient({ get: getMock });
       const tools = new Map<string, Function>();
@@ -1926,11 +1925,12 @@ describe("Tool handlers", () => {
       expect(result.content[0].text).toContain("Session completed");
     });
 
-    it("returns 'no messages' when completed but message list is empty", async () => {
+    it("does not claim completion when no completed assistant message exists", async () => {
       const getMock = vi.fn().mockImplementation((path: string) => {
         if (path === "/session/status") return Promise.resolve({ "s1": "completed" });
         if (path.includes("/message")) return Promise.resolve([]);
-        return Promise.resolve({});
+        if (path === "/question" || path === "/permission") return Promise.resolve([]);
+        return Promise.resolve({ id: "s1" });
       });
       const mockClient = createMockClient({ get: getMock });
       const tools = new Map<string, Function>();
@@ -1942,17 +1942,21 @@ describe("Tool handlers", () => {
       registerWorkflowTools(mockServer, mockClient);
 
       const handler = tools.get("opencode_wait")!;
-      const result = await handler({ sessionId: "s1", timeoutSeconds: 5, pollIntervalMs: 50 });
-      expect(result.content[0].text).toContain("no messages");
+      const result = await handler({ sessionId: "s1", timeoutSeconds: 0.05, pollIntervalMs: 10 });
+      expect(result.structuredContent.status).not.toBe("completed");
+      expect(result.structuredContent.timedOut).toBe(true);
+      expect(result.isError).toBeUndefined();
     });
   });
 
   describe("opencode_run", () => {
     it("creates session, sends prompt, and polls until idle", async () => {
       let pollCount = 0;
+      let submittedMessageId = "";
       const mockClient = createMockClient({
-        post: vi.fn().mockImplementation((path: string) => {
+        post: vi.fn().mockImplementation((path: string, body: any) => {
           if (path === "/session") return Promise.resolve({ id: "ses-run-1" });
+          submittedMessageId = body.messageID;
           return Promise.resolve({ parts: [{ type: "text", text: "Done building!" }] });
         }),
         get: vi.fn().mockImplementation((path: string) => {
@@ -1961,12 +1965,12 @@ describe("Tool handlers", () => {
             // First poll: running, second poll: idle
             return Promise.resolve({ "ses-run-1": pollCount >= 2 ? "idle" : "running" });
           }
-          if (path.includes("/message")) return Promise.resolve([{ parts: [{ type: "text", text: "All tasks completed." }] }]);
+          if (path.includes("/message")) return Promise.resolve([{ info: { id: "answer", role: "assistant", parentID: submittedMessageId, time: { created: 1, completed: 2 } }, parts: [{ type: "text", text: "All tasks completed." }] }]);
           if (path.includes("/todo")) return Promise.resolve([
             { status: "completed", content: "Set up project" },
             { status: "completed", content: "Write tests" },
           ]);
-          return Promise.resolve({});
+          return Promise.resolve([]);
         }),
       });
       const tools = new Map<string, Function>();
@@ -1981,18 +1985,19 @@ describe("Tool handlers", () => {
       const result = await handler({ prompt: "Build app", providerID: "anthropic", modelID: "claude-opus-4-6" });
       expect(result.content[0].text).toContain("ses-run-1");
       expect(result.content[0].text).toContain("completed");
-      expect(result.content[0].text).toContain("2/2");
+      expect(result.structuredContent.status).toBe("completed");
+      expect(result.structuredContent.messageId).toBe(submittedMessageId);
     });
 
     it("returns error status when session errors", async () => {
       const mockClient = createMockClient({
         post: vi.fn().mockImplementation((path: string) => {
           if (path === "/session") return Promise.resolve({ id: "ses-err" });
-          return Promise.resolve({});
+          return Promise.resolve([]);
         }),
         get: vi.fn().mockImplementation((path: string) => {
           if (path === "/session/status") return Promise.resolve({ "ses-err": "error" });
-          return Promise.resolve({});
+          return Promise.resolve([]);
         }),
       });
       const tools = new Map<string, Function>();
@@ -2006,17 +2011,18 @@ describe("Tool handlers", () => {
       const handler = tools.get("opencode_run")!;
       const result = await handler({ prompt: "Bad task", maxDurationSeconds: 1 });
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("error");
+      expect(result.structuredContent.status).toBe("failed");
     });
 
     it("reuses existing session when sessionId provided", async () => {
+      let submittedMessageId = "";
       const mockClient = createMockClient({
-        post: vi.fn().mockResolvedValue({}),
+        post: vi.fn().mockImplementation(async (_path, body) => { submittedMessageId = body.messageID; return undefined; }),
         get: vi.fn().mockImplementation((path: string) => {
           if (path === "/session/status") return Promise.resolve({ "existing-ses": "idle" });
-          if (path.includes("/message")) return Promise.resolve([{ parts: [{ type: "text", text: "Done" }] }]);
+          if (path.includes("/message")) return Promise.resolve([{ info: { id: "answer", role: "assistant", parentID: submittedMessageId, time: { created: 1, completed: 2 } }, parts: [{ type: "text", text: "Done" }] }]);
           if (path.includes("/todo")) return Promise.resolve([]);
-          return Promise.resolve({});
+          return Promise.resolve([]);
         }),
       });
       const tools = new Map<string, Function>();
@@ -2092,8 +2098,8 @@ describe("Tool handlers", () => {
             { status: "pending", content: "Write tests" },
           ]);
           if (path.includes("/diff")) return Promise.resolve([{ path: "src/App.tsx" }, { path: "src/index.ts" }]);
-          if (path === "/session/ses-chk") return Promise.resolve({ title: "Build App", id: "ses-chk" });
-          return Promise.resolve({});
+          if (path === "/session/ses-chk") return Promise.resolve({ title: "Build App", id: "ses-chk", summary: { files: 2 } });
+          return Promise.resolve([]);
         }),
       });
       const tools = new Map<string, Function>();
@@ -2121,8 +2127,9 @@ describe("Tool handlers", () => {
           if (path === "/session/status") return Promise.resolve({ "ses-done": "idle" });
           if (path.includes("/todo")) return Promise.resolve([]);
           if (path.includes("/diff")) return Promise.resolve([]);
+          if (path.includes("/message")) return Promise.resolve([{ info: { id: "answer", role: "assistant", time: { created: 1, completed: 2 } }, parts: [{ type: "text", text: "Done" }] }]);
           if (path === "/session/ses-done") return Promise.resolve({ title: "Finished", id: "ses-done" });
-          return Promise.resolve({});
+          return Promise.resolve([]);
         }),
       });
       const tools = new Map<string, Function>();
@@ -2136,7 +2143,7 @@ describe("Tool handlers", () => {
       const handler = tools.get("opencode_check")!;
       const result = await handler({ sessionId: "ses-done" });
       const text = result.content[0].text;
-      expect(text).toContain("idle");
+      expect(result.structuredContent.status).toBe("completed");
       expect(text).toContain("Done!");
       expect(text).toContain("opencode_review_changes");
     });
@@ -2146,10 +2153,10 @@ describe("Tool handlers", () => {
         get: vi.fn().mockImplementation((path: string) => {
           if (path === "/session/status") return Promise.resolve({ "ses-d": "idle" });
           if (path.includes("/todo")) return Promise.resolve([]);
-          if (path.includes("/message")) return Promise.resolve([{ parts: [{ type: "text", text: "Build complete! All tests pass." }] }]);
+          if (path.includes("/message")) return Promise.resolve([{ info: { id: "answer", role: "assistant", time: { created: 1, completed: 2 } }, parts: [{ type: "text", text: "Build complete! All tests pass." }] }]);
           if (path.includes("/diff")) return Promise.resolve([]);
           if (path === "/session/ses-d") return Promise.resolve({ title: "Detail test", id: "ses-d" });
-          return Promise.resolve({});
+          return Promise.resolve([]);
         }),
       });
       const tools = new Map<string, Function>();
@@ -2356,21 +2363,22 @@ describe("Issue #20: asynchronous workflow dispatch", () => {
       prompt: "Long task", directory: "/tmp", providerID: "test", modelID: "model",
       variant: "high", agent: "build", maxDurationSeconds: 0,
     });
-    expect(result.isError).toBe(name === "opencode_run" ? true : undefined);
+    expect(result.isError).toBeUndefined();
     expect(result.content[0].text).toContain(name === "opencode_run" ? "still running" : "Task dispatched");
     expect(result.content[0].text).toContain("async-session");
     expect(client.post).toHaveBeenLastCalledWith("/session/async-session/prompt_async", {
-      parts: [{ type: "text", text: "Long task" }], noReply: false,
+      parts: [{ type: "text", text: "Long task" }], messageID: expect.stringMatching(/^msg_/),
       model: { providerID: "test", modelID: "model" }, variant: "high", agent: "build",
-    }, { directory: "/tmp" });
+    }, expect.objectContaining({ directory: "/tmp", signal: expect.any(AbortSignal), deadline: expect.any(Number) }));
   });
 
   it("reports dispatch failures rather than claiming a task is running", async () => {
     const { tools, client } = captureTools(registerWorkflowTools);
-    vi.mocked(client.post).mockRejectedValue(new Error("dispatch rejected"));
+    vi.mocked(client.post).mockRejectedValue(new OpenCodeError("dispatch rejected", 400, "POST", "/session/existing/prompt_async", "invalid"));
     const result = await tools.get("opencode_fire")!.handler({ prompt: "Task", sessionId: "existing" });
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("dispatch rejected");
+    expect(result.structuredContent.status).toBe("failed");
+    expect(result.content[0].text).toContain("rejected");
   });
 });
 
@@ -2379,9 +2387,9 @@ describe("Issue #14: remote project directories", () => {
   it.each(["opencode_status", "opencode_context", "opencode_check"])("%s accepts a server-only path", async (name) => {
     const { tools, client } = captureTools(registerWorkflowTools);
     const directory = "/remote-only/project-issue-14";
-    vi.mocked(client.get).mockImplementation(async (path) => path === "/agent" ? [] : {});
+    vi.mocked(client.get).mockImplementation(async (path) => path === "/agent" || path === "/question" || path === "/permission" || path.endsWith("/message") ? [] : {});
     const result = await tools.get(name)!.handler({ directory, sessionId: "remote-session" });
     expect(result.isError).toBeUndefined();
-    expect(client.get).toHaveBeenCalledWith(expect.any(String), undefined, directory);
+    expect(vi.mocked(client.get).mock.calls.some(call => call[2] === directory)).toBe(true);
   });
 });

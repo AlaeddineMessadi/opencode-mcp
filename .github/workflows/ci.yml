@@ -24,4 +24,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - run: npm run docs:check
+      - run: npm pack --dry-run
       - run: git diff --check
