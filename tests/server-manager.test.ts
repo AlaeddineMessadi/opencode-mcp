@@ -31,6 +31,7 @@ import {
   ensureServer,
   registerShutdownHandlers,
   resetShutdownRegisteredForTests,
+  ServerAuthenticationError,
 } from "../src/server-manager.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -231,17 +232,35 @@ describe("startServer", () => {
     );
   });
 
-  it("returns version=undefined when post-start health check fails", async () => {
+  it("closes only its owned child when post-start health check fails", async () => {
+    const close = vi.fn();
     createOpencodeServerMock.mockResolvedValueOnce({
       url: "http://127.0.0.1:4096",
-      close: vi.fn(),
+      close,
     });
     mockFetchDown(); // health check after start fails
 
-    const result = await startServer("http://127.0.0.1:4096", 5000);
+    await expect(startServer("http://127.0.0.1:4096", 5000)).rejects.toThrow("healthy V1 contract");
+    expect(close).toHaveBeenCalledOnce();
+    stopServer();
+    expect(close).toHaveBeenCalledOnce();
+  });
 
-    expect(result.url).toBe("http://127.0.0.1:4096");
-    expect(result.version).toBeUndefined();
+  it("uses configured authentication for the owned child without unauthenticated fallback", async () => {
+    createOpencodeServerMock.mockResolvedValueOnce({ url: "http://127.0.0.1:4096", close: vi.fn() });
+    mockFetchHealthy();
+    await startServer("http://127.0.0.1:4096", 5000, "fixture-user", "fixture-password");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(`Basic ${Buffer.from("fixture-user:fixture-password").toString("base64")}`);
+  });
+
+  it.each([401, 403])("closes the owned child after post-start HTTP %i", async status => {
+    const close = vi.fn();
+    createOpencodeServerMock.mockResolvedValueOnce({ url: "http://127.0.0.1:4096", close });
+    fetchMock.mockResolvedValueOnce({ ok: false, status });
+    await expect(startServer("http://127.0.0.1:4096", 5000, "fixture", "fixture")).rejects.toBeInstanceOf(ServerAuthenticationError);
+    expect(close).toHaveBeenCalledOnce(); expect(fetchMock).toHaveBeenCalledTimes(1);
+    stopServer(); expect(close).toHaveBeenCalledOnce();
   });
 });
 
@@ -325,6 +344,12 @@ describe("shutdown behavior", () => {
 // ─── ensureServer ────────────────────────────────────────────────────────
 
 describe("ensureServer", () => {
+  it.each([401, 403])("never starts after authentication HTTP %i", async status => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status });
+    await expect(ensureServer({ baseUrl: "http://127.0.0.1:4096", autoServe: true })).rejects.toBeInstanceOf(ServerAuthenticationError);
+    expect(createOpencodeServerMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it("returns immediately when server is already running", async () => {
     mockFetchHealthy("1.14.46");
 

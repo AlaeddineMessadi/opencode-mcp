@@ -1,3 +1,4 @@
+import { BackendCapabilityError } from "./backends/contracts.js";
 /** July 2026 Tasks extension bridge. SDK v2 currently handles core MCP only.
  * Keep extension dispatch at the stdio boundary; all core traffic uses serveStdio.
  */
@@ -5,9 +6,9 @@ import type { Transport, JSONRPCMessage } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { JobService, type JobSnapshot } from "./jobs.js";
 import { runInputSchema } from "./job-contract.js";
-import { applyModelDefaults, toolResult } from "./helpers.js";
+import { applyModelDefaults, toolResult, toolError } from "./helpers.js";
 import { withStructuredText } from "./mcp-server.js";
-import { decodeInputResponses, inputRequests, supportsForm } from "./task-input.js";
+import { decodeInputResponses, inputRequests, supportsForm, canUseNativeForms } from "./task-input.js";
 
 export const TASKS_EXTENSION = "io.modelcontextprotocol/tasks";
 const VERSION = "2026-07-28";
@@ -35,7 +36,10 @@ export function taskFromJob(job: JobSnapshot, detailed = false): Record<string, 
   };
   if (detailed && status === "completed") task.result = { resultType: "complete", ...withStructuredText(
     toolResult(job.text ?? (job.status === "failed" ? "OpenCode task failed" : "Completed"), job.status === "failed", { ...job })) };
-  if (detailed && status === "input_required") task.inputRequests = inputRequests(job.inputs ?? []);
+  if (detailed && status === "input_required") {
+    if (canUseNativeForms(job.inputs ?? [])) task.inputRequests = inputRequests(job.inputs ?? []);
+    else { task.status = "working"; task.statusMessage = "Manual input required: use opencode_job_input with typed values matching the returned fields."; task.pendingInputs = job.inputs; }
+  }
   return { resultType: detailed ? "complete" : "task", ...task };
 }
 
@@ -104,13 +108,13 @@ export class TaskTransport implements Transport {
       let result: Record<string, unknown>;
       if (run) {
         const args = runInputSchema.parse(request.params?.arguments ?? {});
-        const job = await this.jobs.start({ ...args, model: applyModelDefaults(args.providerID, args.modelID) }, { signal: controller.signal });
+        const job = await this.jobs.start({ ...args, model: this.jobs.selectModel(args.providerID, args.modelID, !args.sessionId) }, { signal: controller.signal });
         result = taskFromJob(job);
       } else {
         const { taskId } = z.object({ taskId: z.string().min(1) }).parse(request.params);
         if (request.method === "tasks/get") {
           const job = await this.jobs.get(taskId, { signal: controller.signal });
-          if (job.status === "input_required" && !supportsForm(caps)) {
+          if (job.status === "input_required" && !supportsForm(caps) && canUseNativeForms(job.inputs ?? [])) {
             await fail(-32021, "Pending input requires form elicitation", { requiredCapabilities: { elicitation: { form: {} } } });
             return;
           }
@@ -130,6 +134,10 @@ export class TaskTransport implements Transport {
       }
       await this.send({ jsonrpc: "2.0", id, result });
     } catch (error) {
+      if (run && error instanceof BackendCapabilityError) {
+        await this.send({ jsonrpc: "2.0", id, result: { resultType: "complete", ...withStructuredText(toolError(error)) } });
+        return;
+      }
       await fail(error instanceof z.ZodError ? -32602 : -32603,
         error instanceof z.ZodError ? "Invalid task parameters" : error instanceof Error ? error.message : "Task operation failed");
     } finally { this.active.delete(id); }

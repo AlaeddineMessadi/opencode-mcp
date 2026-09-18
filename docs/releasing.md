@@ -1,5 +1,41 @@
 # Release and live verification
 
+## V1/V2 evidence requirements
+
+The compatibility foundation targets `opencode-ai@1.18.31` for V1 and `@opencode/cli@2.0.6` for V2, with `@opencode/client@2.0.6` pinned. Run each in a disposable installation and isolated state directory. Do not replace a global OpenCode executable or attach to a user's shared service for mutation tests.
+
+Fixture tests verify transport contracts, normalization, request guards, job correlation, and CLI behavior. They do not establish live model/provider compatibility. Likewise, doctor's `matchesIntegrationTarget` is a version comparison, not live verification evidence. Record the exact backend, command, exit status, covered operations, and skipped capabilities for each live run. Inference must remain opt-in with an explicitly selected provider/model.
+
+The generated [capability inventory](compatibility.md) currently lists 64 V2 tool mappings, 22 intentional V1-only exceptions, and one upstream-blocked operation. `opencode_command_execute` remains blocked because the V2 2.0.6 contract cannot correlate exact command completion. Passing tests does not fulfill that missing behavior, and no detached command may be substituted. Keep this limitation in release notes until an upstream contract and its regression tests resolve it.
+
+## Verify the installed archive and isolated backends
+
+```bash
+npm run test:package
+npm run test:compat
+```
+
+`test:package` installs the produced archive with production dependencies into a disposable consumer and checks its executable against an HTTP fixture. `test:compat` builds and packs the bridge, installs each pinned native backend into temporary directories, and exercises that installed bridge against the real isolated backend. It checks runtime versions, catalog/read operations, owned-session create/read/update/list/delete, and backend survival after MCP disconnect. These commands do not publish anything or replace a global executable.
+
+To run one native backend:
+
+```bash
+npm run test:compat -- --backend v1
+npm run test:compat -- --backend v2
+```
+
+The default is `--backend all`; inference is disabled. Temporary homes, state, project, and job stores are removed after the run. Authentication for the owned test server is kept in memory and passed to its bridge; the V2 foreground password is read only from that owned server's documented startup line. Failure reports include safe phase labels, never raw server output or credential values.
+
+To opt in to one model request, choose the provider/model explicitly. Forward only the credential environment variable required by that provider:
+
+```bash
+npm run test:compat -- --backend v2 --inference \
+  --provider YOUR_PROVIDER --model YOUR_MODEL \
+  --credential-env OPENAI_API_KEY
+```
+
+Here `OPENAI_API_KEY` is an example variable name; use the relevant existing credential variable for the selected provider. The harness takes its value from the invoking environment, not an argument. Repeat `--credential-env` for additional required credential names. Provider/model/credential arguments without `--inference` are rejected. This optional check can incur provider charges and does not exercise OAuth or GUI interaction. Record the emitted `checks` and `skips` rather than interpreting one successful request as complete capability coverage.
+
 ## Local smoke checks
 
 Build the package, start a local OpenCode server, then run:
@@ -46,6 +82,8 @@ The runner sends a text-only request through `opencode_fire`, checks progress, w
    npm run test:coverage
    npm audit
    git diff --check
+   npm run test:package
+   npm run test:compat
    ```
    Confirm the required CI matrix passed on the exact release commit. Record the tested OpenCode version. The default fixture smoke checks should pass; explicitly select a provider/model when validating inference. Record skipped live capabilities accurately.
 

@@ -1,3 +1,4 @@
+import { packageVersion } from "./version.js";
 import { McpServer, type ToolProfile } from "./mcp-server.js";
 import { OpenCodeClient } from "./client.js";
 import { JobService } from "./jobs.js";
@@ -22,7 +23,7 @@ import { registerPrompts } from "./prompts.js";
 
 /** Build registrations without connecting or performing network/filesystem I/O. */
 export function createServer(client: OpenCodeClient, jobs: JobService, profile: ToolProfile = "full") {
-  const server = new McpServer({ name: "opencode-mcp", version: "3.0.0",
+  const server = new McpServer({ name: "opencode-mcp", version: packageVersion,
     description: "Delegate coding work to OpenCode with durable jobs, explicit input, and project-scoped tools." }, {
     capabilities: { extensions: { [TASKS_EXTENSION]: {} } },
     cacheHints: { "tools/list": { ttlMs: 60000, cacheScope: "private" }, "prompts/list": { ttlMs: 60000, cacheScope: "private" },
@@ -30,7 +31,7 @@ export function createServer(client: OpenCodeClient, jobs: JobService, profile: 
       "resources/read": { ttlMs: 0, cacheScope: "private" } },
     instructions: [
       "Start with opencode_setup. Discover configured providers/models using opencode_provider_list and opencode_provider_models; pass their IDs or configure OPENCODE_DEFAULT_PROVIDER/MODEL.",
-      "Use opencode_ask for a short task and opencode_reply to continue a session. Model output may be constrained with format: {type: 'json_schema', schema: {...}}.",
+      "Use opencode_ask for a short task and opencode_reply to continue a session. V1 model output may be constrained with format: {type: 'json_schema', schema: {...}}. V2 rejects schema formats, nonempty system overrides, and noReply. Existing V2 sessions preserve their model and agent; defaults apply only to new sessions.",
       "Use opencode_run for long work. July 2026 clients advertising the Tasks extension receive a native task handle; poll tasks/get, supply explicit input via tasks/update, and abort via tasks/cancel.",
       "Other clients receive an observed result from opencode_run. opencode_fire returns immediately. Keep jobId, sessionId, and messageId to resume observation with opencode_job_get, opencode_check, or opencode_wait.",
       "Observation timeouts and disconnects do not cancel OpenCode work. An unknown submission outcome must be checked before any retry. Local job records expire after 24 hours; they do not keep a stopped OpenCode process alive.",
@@ -42,6 +43,7 @@ export function createServer(client: OpenCodeClient, jobs: JobService, profile: 
     ].join("\n"),
   });
   server.profile = profile;
+  server.backendIdentity = client.getBackendIdentity?.();
 // ── Low-level API tools ─────────────────────────────────────────────
 registerGlobalTools(server, client);
 registerConfigTools(server, client);

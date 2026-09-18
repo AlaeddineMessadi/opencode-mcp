@@ -1,3 +1,6 @@
+import { capabilities } from "../backends/capabilities.js";
+import { assertPromptOptions } from "../backends/v2-guards.js";
+import { operate, selectModel } from "../backends/adapter.js";
 /**
  * High-level workflow tools — composite operations that make it easy
  * for an LLM to accomplish common tasks in a single call.
@@ -25,6 +28,11 @@ import {
   readOnly,
   outputFormatParam,
 } from "../helpers.js";
+
+function jobFailure(error: unknown, snapshot: Partial<JobSnapshot>) {
+  const failure = toolError(error);
+  return { ...failure, structuredContent: { ...snapshot, status: "failed", ...failure.structuredContent } };
+}
 
 function jobResult(snapshot: JobSnapshot, note = "", extra: Record<string, unknown> = {}) {
   const lines = [snapshot.directory ? `Directory: ${snapshot.directory}` : "", snapshot.sessionId ? `Session: ${snapshot.sessionId}` : "",
@@ -81,11 +89,14 @@ export function registerWorkflowTools(
     async ({ directory }) => {
       try {
         const sections: string[] = [];
+        const identity = client.getBackendIdentity?.();
+        const supportedCapabilities = capabilities.filter(capability => !identity || identity.kind === "v1" || capability.v2 === "supported").map(capability => capability.name);
+        if (identity) sections.push(identity.resolved === false ? "## Connection\nBackend unresolved; restart after the configured endpoint is available." : `## Connection\nBackend: ${identity.kind} ${identity.version ?? "unknown"}\nSource: ${identity.connectionSource}\nProcess ownership: ${identity.processOwnership}\nWork survives MCP disconnect: ${identity.survivesDisconnect ? "yes, while the backend stays alive" : "no, MCP owns the child"}`);
 
         // 1. Health check
         let healthy = false;
         try {
-          const health = (await client.get("/global/health", undefined, directory)) as Record<string, unknown>;
+          const health = (await operate(client, "lifecycle.health", { directory: directory })) as Record<string, unknown>;
           healthy = true;
           sections.push(
             `## Server\nStatus: healthy\nVersion: ${health.version ?? "unknown"}`,
@@ -97,12 +108,12 @@ export function registerWorkflowTools(
         }
 
         if (!healthy) {
-          return toolResult(sections.join("\n\n"));
+          return toolResult(sections.join("\n\n"), false, { backend: identity?.resolved === false ? { resolved: false } : identity, supportedCapabilities });
         }
 
         // 2. Providers — categorize by readiness
         try {
-          const raw = await client.get("/provider", undefined, directory);
+          const raw = await operate(client, "providers.list", { directory: directory });
           const providers = (
             raw && typeof raw === "object" && "all" in (raw as Record<string, unknown>)
               ? (raw as Record<string, unknown>).all
@@ -113,7 +124,7 @@ export function registerWorkflowTools(
             // Fetch auth methods for richer guidance
             let authMethods: Record<string, unknown> | null = null;
             try {
-              authMethods = (await client.get("/provider/auth", undefined, directory)) as Record<string, unknown>;
+              authMethods = (await operate(client, "providers.authMethods", { directory: directory })) as Record<string, unknown>;
             } catch { /* non-critical */ }
 
             // Helper to count models
@@ -211,7 +222,7 @@ export function registerWorkflowTools(
 
         // 3. Project info (if directory given or from default)
         try {
-          const project = (await client.get("/project/current", undefined, directory)) as Record<string, unknown>;
+          const project = (await operate(client, "projects.current", { directory: directory })) as Record<string, unknown>;
           const worktree = (project.worktree ?? "unknown") as string;
           // Derive a readable name: prefer project.name, then last dir component from worktree, then id
           const name = project.name
@@ -257,7 +268,7 @@ export function registerWorkflowTools(
         }
         sections.push(`## Next Steps\n${tips.join("\n")}`);
 
-        return toolResult(sections.join("\n\n"));
+        return toolResult(sections.join("\n\n"), false, { backend: identity?.resolved === false ? { resolved: false } : identity, supportedCapabilities });
       } catch (e) {
         return toolError(e);
       }
@@ -297,10 +308,12 @@ export function registerWorkflowTools(
     async ({ prompt, title, providerID, modelID, variant, agent, system, format, directory }, extra) => {
       let sessionId: string | undefined;
       try {
+        if (client.getBackendIdentity?.().kind === "v2") assertPromptOptions({ system, format });
         // 1. Create session
-        const session = (await client.post("/session", {
+        const session = (await operate(client, "sessions.create", { body: {
           title: title ?? prompt.slice(0, 80),
-        }, { directory, ...(extra?.signal ? { signal: extra.signal } : {}) })) as Record<string, unknown>;
+          ...(client.getBackendIdentity?.().kind === "v2" ? { model: selectModel(client, providerID, modelID, true), variant, agent } : {}),
+        }, ...({ directory, ...(extra?.signal ? { signal: extra.signal } : {}) }) })) as Record<string, unknown>;
         sessionId = session.id as string;
         if (!sessionId) throw new Error("OpenCode returned a session without an ID");
 
@@ -310,16 +323,12 @@ export function registerWorkflowTools(
         };
         const model = applyModelDefaults(providerID, modelID);
         if (model) body.model = model;
-        if (variant) body.variant = variant;
-        if (agent) body.agent = agent;
+        if (variant || client.getBackendIdentity?.().kind === "v2" && variant !== undefined) body.variant = variant;
+        if (agent || client.getBackendIdentity?.().kind === "v2" && agent !== undefined) body.agent = agent;
         if (system) body.system = system;
         if (format) body.format = format;
 
-        const response = await client.post(
-          `/session/${sessionId}/message`,
-          body,
-          { directory, ...(extra?.signal ? { signal: extra.signal } : {}) },
-        );
+        const response = await operate(client, "messages.send", { sessionId: sessionId, body: body, ...({ directory, ...(extra?.signal ? { signal: extra.signal } : {}) }) });
 
         // 3. Analyze for auth / empty response issues
         const analysis = analyzeMessageResponse(response);
@@ -335,7 +344,7 @@ export function registerWorkflowTools(
         return toolResult(parts.join("\n\n"), analysis.hasError, { sessionId, directory, data: response });
       } catch (e) {
         const result = toolError(e);
-        return { ...result, content: [{ type: "text" as const, text: `${sessionId ? `Session: ${sessionId}\n` : ""}${result.content[0].text}` }], structuredContent: { sessionId, directory } };
+        return { ...result, content: [{ type: "text" as const, text: `${sessionId ? `Session: ${sessionId}\n` : ""}${result.content[0].text}` }], structuredContent: { ...result.structuredContent, sessionId, directory } };
       }
     },
   );
@@ -359,17 +368,13 @@ export function registerWorkflowTools(
         const body: Record<string, unknown> = {
           parts: [{ type: "text", text: prompt }],
         };
-        const model = applyModelDefaults(providerID, modelID);
+        const model = selectModel(client, providerID, modelID);
         if (model) body.model = model;
-        if (variant) body.variant = variant;
-        if (agent) body.agent = agent;
+        if (variant || client.getBackendIdentity?.().kind === "v2" && variant !== undefined) body.variant = variant;
+        if (agent || client.getBackendIdentity?.().kind === "v2" && agent !== undefined) body.agent = agent;
         if (format) body.format = format;
 
-        const response = await client.post(
-          `/session/${sessionId}/message`,
-          body,
-          { directory, ...(extra?.signal ? { signal: extra.signal } : {}) },
-        );
+        const response = await operate(client, "messages.send", { sessionId: sessionId, body: body, ...({ directory, ...(extra?.signal ? { signal: extra.signal } : {}) }) });
 
         const analysis = analyzeMessageResponse(response);
         const formatted = formatMessageResponse(response);
@@ -389,7 +394,7 @@ export function registerWorkflowTools(
         );
       } catch (e) {
         const result = toolError(e);
-        return { ...result, content: [{ type: "text" as const, text: `Session: ${sessionId}\n${result.content[0].text}` }], structuredContent: { sessionId, directory } };
+        return { ...result, content: [{ type: "text" as const, text: `Session: ${sessionId}\n${result.content[0].text}` }], structuredContent: { ...result.structuredContent, sessionId, directory } };
       }
     },
   );
@@ -404,18 +409,16 @@ export function registerWorkflowTools(
         .number()
         .optional()
         .describe("Max messages to return (default: all)"),
+      cursor: z.string().optional().describe("V2 continuation cursor"),
       directory: directoryParam,
     },
     readOnly,
-    async ({ sessionId, limit, directory }) => {
+    async ({ sessionId, limit, cursor, directory }) => {
       try {
         const query: Record<string, string> = {};
         if (limit !== undefined) query.limit = String(limit);
-        const messages = await client.get(
-          `/session/${sessionId}/message`,
-          query,
-          directory,
-        );
+        if (cursor) query.cursor = cursor;
+        const messages = await operate(client, "messages.list", { sessionId: sessionId, query: query, directory: directory });
         const formatted = formatMessageList(
           messages as unknown[],
         );
@@ -437,8 +440,8 @@ export function registerWorkflowTools(
     async ({ directory }) => {
       try {
         const [sessions, statuses] = await Promise.all([
-          client.get("/session", undefined, directory) as Promise<Array<Record<string, unknown>>>,
-          client.get("/session/status", undefined, directory) as Promise<Record<string, unknown>>,
+          operate(client, "sessions.list", { directory: directory }) as Promise<Array<Record<string, unknown>>>,
+          operate(client, "sessions.status", { directory: directory }) as Promise<Record<string, unknown>>,
         ]);
 
         if (!sessions || sessions.length === 0) {
@@ -478,11 +481,11 @@ export function registerWorkflowTools(
         directory = normalizeDirectory(directory) as typeof directory;
 
         const [project, path, vcs, config, agents] = await Promise.all([
-          client.get("/project/current", undefined, directory).catch(() => null),
-          client.get("/path", undefined, directory).catch(() => null),
-          client.get("/vcs", undefined, directory).catch(() => null),
-          client.get("/config", undefined, directory).catch(() => null),
-          client.get("/agent", undefined, directory).catch(() => null),
+          operate(client, "projects.current", { directory: directory }).catch(() => null),
+          operate(client, "files.paths", { directory: directory }).catch(() => null),
+          operate(client, "files.vcs", { directory: directory }).catch(() => null),
+          operate(client, "configuration.get", { directory: directory }).catch(() => null),
+          operate(client, "configuration.agents", { directory: directory }).catch(() => null),
         ]);
 
         const sections: string[] = [];
@@ -587,16 +590,19 @@ export function registerWorkflowTools(
         .string()
         .optional()
         .describe("Specific message ID to get diff for"),
+      from: z.string().optional().describe("V2 first message in an explicit diff range"),
+      to: z.string().optional().describe("V2 last message in an explicit diff range"),
       directory: directoryParam,
     },
     readOnly,
-    async ({ sessionId, messageID, directory }) => {
+    async ({ sessionId, messageID, from, to, directory }) => {
       try {
         const query: Record<string, string> = {};
         if (messageID) query.messageID = messageID;
-        const diffs = await client.get(`/session/${sessionId}/diff`, query, directory);
+        if (from) query.from = from; if (to) query.to = to;
+        const diffs = await operate(client, "sessions.diff", { sessionId: sessionId, query: query, directory: directory });
         const { formatDiffResponse } = await import("../helpers.js");
-        return toolResult(formatDiffResponse(diffs as unknown[]));
+        return toolResult(formatDiffResponse(diffs as unknown[]), false, { data: diffs });
       } catch (e) {
         return toolError(e);
       }
@@ -618,7 +624,7 @@ export function registerWorkflowTools(
       let sessionId: string | null = null;
       try {
         if (!modelID) {
-          const raw = await client.get("/provider", undefined, directory) as Record<string, unknown>;
+          const raw = await operate(client, "providers.list", { directory: directory }) as Record<string, unknown>;
           const providers = Array.isArray(raw) ? raw : Array.isArray(raw?.all) ? raw.all : [];
           const provider = providers.find((p: Record<string, unknown>) => p.id === providerId);
           const models = provider?.models;
@@ -629,10 +635,12 @@ export function registerWorkflowTools(
           modelID = preferred && choices.includes(preferred) ? preferred : choices[0];
           if (!modelID) throw new Error(`No model discovered for provider "${providerId}". Specify modelID from opencode_provider_models.`);
         }
+        if (client.getBackendIdentity?.().kind === "v2") assertPromptOptions({ format });
         // 1. Create a temporary test session
-        const session = (await client.post("/session", {
+        const session = (await operate(client, "sessions.create", { body: {
           title: `[test] ${providerId}`,
-        }, { directory, ...(extra?.signal ? { signal: extra.signal } : {}) })) as Record<string, unknown>;
+          ...(client.getBackendIdentity?.().kind === "v2" ? { model: { providerID: providerId, modelID }, variant } : {}),
+        }, ...({ directory, ...(extra?.signal ? { signal: extra.signal } : {}) }) })) as Record<string, unknown>;
         sessionId = session.id as string;
 
         // 2. Send a trivial prompt
@@ -640,14 +648,10 @@ export function registerWorkflowTools(
           parts: [{ type: "text", text: "Say hello in one word." }],
         };
         body.model = { providerID: providerId, modelID };
-        if (variant) body.variant = variant;
+        if (variant || client.getBackendIdentity?.().kind === "v2" && variant !== undefined) body.variant = variant;
         if (format) body.format = format;
 
-        const response = await client.post(
-          `/session/${sessionId}/message`,
-          body,
-          { directory, ...(extra?.signal ? { signal: extra.signal } : {}) },
-        );
+        const response = await operate(client, "messages.send", { sessionId: sessionId, body: body, ...({ directory, ...(extra?.signal ? { signal: extra.signal } : {}) }) });
 
         // 3. Analyze the response
         const analysis = analyzeMessageResponse(response);
@@ -655,7 +659,7 @@ export function registerWorkflowTools(
 
         // 4. Cleanup — delete test session
         try {
-          await client.delete(`/session/${sessionId}`, undefined, directory);
+          await operate(client, "sessions.remove", { sessionId: sessionId, directory: directory });
         } catch { /* best-effort cleanup */ }
 
         if (analysis.hasError || analysis.isEmpty) {
@@ -677,7 +681,7 @@ export function registerWorkflowTools(
         // Cleanup on error
         if (sessionId) {
           try {
-            await client.delete(`/session/${sessionId}`, undefined, directory);
+            await operate(client, "sessions.remove", { sessionId: sessionId, directory: directory });
           } catch { /* best-effort cleanup */ }
         }
         return { ...toolError(e), structuredContent: { sessionId, directory, providerId, modelID } };
@@ -696,13 +700,13 @@ export function registerWorkflowTools(
       const context = createRequestContext({ signal: extra?.signal, timeout: seconds > 0 ? seconds * 1000 : 120000 });
       try {
         snapshot = await service.start({ prompt, sessionId, title, directory,
-          model: applyModelDefaults(providerID, modelID), variant, agent, format }, context);
+          model: selectModel(client, providerID, modelID, !sessionId), variant, agent, format }, context);
         if (["failed", "unknown", "cancelled", "input_required"].includes(snapshot.status)) return jobResult(snapshot);
         const remaining = seconds === 0 ? 0 : Math.max(0, (context.deadline - Date.now()) / 1000);
         return await waitForSnapshot(options => service.get(snapshot.jobId!, options), snapshot, remaining, 1000, extra);
       } catch (error) {
         if (context.signal.aborted) return jobResult(snapshot, "Observation ended before dispatch could be confirmed. Check the session before retrying.", { timedOut: !extra?.signal?.aborted, observationCancelled: extra?.signal?.aborted === true });
-        return jobResult({ ...snapshot, status: "failed", error: error instanceof Error ? error.message : String(error) });
+        return jobFailure(error, snapshot);
       } finally {
         context.dispose();
       }
@@ -716,11 +720,11 @@ export function registerWorkflowTools(
     async ({ prompt, sessionId, title, providerID, modelID, variant, agent, format, directory }, extra) => {
       try {
         const snapshot = await service.start({ prompt, sessionId, title, directory,
-          model: applyModelDefaults(providerID, modelID), variant, agent, format }, { signal: extra?.signal });
+          model: selectModel(client, providerID, modelID, !sessionId), variant, agent, format }, { signal: extra?.signal });
         return jobResult(snapshot, snapshot.status === "accepted"
           ? `Task dispatched. Use opencode_check({jobId: "${snapshot.jobId}"}) or opencode_wait({jobId: "${snapshot.jobId}"}) to monitor it.` : "");
       } catch (error) {
-        return jobResult({ sessionId: sessionId ?? "", directory, status: "failed", error: error instanceof Error ? error.message : String(error) });
+        return jobFailure(error, { sessionId: sessionId ?? "", directory });
       }
     },
   );
@@ -746,7 +750,7 @@ export function registerWorkflowTools(
         const sid = snapshot.sessionId;
         if (!sid) return jobResult(snapshot, "Session creation could not be confirmed. Inspect this job before retrying.");
         const project = snapshot.directory ?? directory;
-        const todos = await client.get(`/session/${sid}/todo`, undefined, project, options).catch(() => null) as Array<Record<string, unknown>> | null;
+        const todos = await operate(client, "sessions.todo", { sessionId: sid, directory: project, ...(options) }).catch(() => null) as Array<Record<string, unknown>> | null;
         const session = snapshot.session as { title?: string; summary?: { files?: number } } | undefined;
         const lines: string[] = [];
         if (session?.title) lines.push(`Title: ${session.title}`);
@@ -784,10 +788,10 @@ export function registerWorkflowTools(
         directory = normalizeDirectory(directory) as typeof directory;
 
         const [health, providerRaw, sessions, vcs] = await Promise.all([
-          client.get("/global/health", undefined, directory).catch(() => null),
-          client.get("/provider", undefined, directory).catch(() => null),
-          client.get("/session", undefined, directory).catch(() => null),
-          client.get("/vcs", undefined, directory).catch(() => null),
+          operate(client, "lifecycle.health", { directory: directory }).catch(() => null),
+          operate(client, "providers.list", { directory: directory }).catch(() => null),
+          operate(client, "sessions.list", { directory: directory }).catch(() => null),
+          operate(client, "files.vcs", { directory: directory }).catch(() => null),
         ]);
 
         const lines: string[] = [];

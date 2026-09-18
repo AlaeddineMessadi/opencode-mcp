@@ -11,6 +11,8 @@ export interface ServerManagerOptions {
    */
   username?: string;
   password?: string;
+  /** Bound the complete startup to the caller's remaining budget. */
+  timeoutMs?: number;
 }
 
 export interface ServerStatus {
@@ -97,6 +99,7 @@ export async function isServerRunning(
   baseUrl: string,
   username?: string,
   password?: string,
+  timeoutMs = 3000,
 ): Promise<{ healthy: boolean; version?: string }> {
   try {
     const headers: Record<string, string> = {};
@@ -107,8 +110,11 @@ export async function isServerRunning(
     const response = await fetch(`${baseUrl.replace(/\/$/, "")}/global/health`, {
       method: "GET",
       headers,
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
+    if (response.status === 401 || response.status === 403) {
+      throw new ServerAuthenticationError(response.status);
+    }
     if (!response.ok) return { healthy: false };
     const res = await response.json() as any;
     if (res && typeof res === 'object' && 'healthy' in res) {
@@ -118,15 +124,26 @@ export async function isServerRunning(
         };
     }
     return { healthy: false };
-  } catch {
+  } catch (error) {
+    if (error instanceof ServerAuthenticationError) throw error;
     return { healthy: false };
+  }
+}
+
+export class ServerAuthenticationError extends Error {
+  constructor(readonly status: number) {
+    super("OpenCode server authentication failed; no alternate server will be started.");
+    this.name = "ServerAuthenticationError";
   }
 }
 
 export async function startServer(
   baseUrl: string,
   timeoutMs: number = 30000,
+  username?: string,
+  password?: string,
 ): Promise<{ url: string; version?: string }> {
+  const deadline = Date.now() + timeoutMs;
   const target = new URL(baseUrl);
   if (target.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(target.hostname) || target.pathname !== "/") {
     throw new Error("Auto-start requires a local loopback HTTP URL without a path prefix. Start remote servers manually and set OPENCODE_BASE_URL.");
@@ -149,15 +166,22 @@ export async function startServer(
 
   registerShutdownHandlers();
 
-  // Note: managed (in-process) SDK servers do not enforce auth, so this probe
-  // is unauthenticated by design. External servers, when present, are probed
-  // with credentials from `ensureServer`.
-  const status = await isServerRunning(created.url);
-  return { url: created.url, version: status.version };
+  // SDK children inherit environment authentication. Use the same identity
+  // and never retry without credentials.
+  try {
+    if (Date.now() >= deadline) throw new Error("OpenCode startup exceeded its time budget.");
+    const status = await isServerRunning(created.url, username, password, Math.min(3000, Math.max(1, deadline - Date.now())));
+    if (!status.healthy) throw new Error("Started OpenCode server does not expose a healthy V1 contract.");
+    return { url: created.url, version: status.version };
+  } catch (error) {
+    created.close();
+    if (managedServer === created) managedServer = null;
+    throw error;
+  }
 }
 
-export function stopServer(): void {
-  if (managedServer) {
+export function stopServer(ownedUrl?: string): void {
+  if (managedServer && (ownedUrl === undefined || managedServer.url === ownedUrl)) {
     managedServer.close();
     managedServer = null;
   }
@@ -169,7 +193,8 @@ export async function ensureServer(
   const baseUrl = opts.baseUrl;
   const autoServe = opts.autoServe === true;
 
-  const existing = await isServerRunning(baseUrl, opts.username, opts.password);
+  const startedAt = Date.now();
+  const existing = await isServerRunning(baseUrl, opts.username, opts.password, Math.min(3000, opts.timeoutMs ?? 3000));
   if (existing.healthy) {
     console.error(
       `OpenCode server already running at ${baseUrl} (v${existing.version ?? "unknown"})`,
@@ -197,7 +222,7 @@ export async function ensureServer(
   const startupKey = baseUrl.replace(/\/$/, "");
   let inFlight = startServerInFlight.get(startupKey);
   if (!inFlight) {
-    inFlight = startServer(startupKey).finally(() => {
+    inFlight = startServer(startupKey, Math.max(1, (opts.timeoutMs ?? 30000) - (Date.now() - startedAt)), opts.username, opts.password).finally(() => {
       startServerInFlight.delete(startupKey);
     });
     startServerInFlight.set(startupKey, inFlight);

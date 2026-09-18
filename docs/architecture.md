@@ -16,6 +16,8 @@ opencode-mcp is a stdio bridge. OpenCode owns coding sessions and model executio
 |---|---|
 | Entry point and MCP adapter | Register the catalog, select a profile, negotiate protocol support, manage stdio |
 | `client.ts` | SDK-backed HTTP requests, error handling, bounded retries, SSE, directory routing |
+| `backends/` | V1/V2 domain adapters, normalized records, capability inventory, and explicit compatibility guards |
+| `backend-detection.ts`, `doctor.ts` | Contract validation, read-only discovery, lifecycle identity, and bounded readiness diagnostics |
 | `server-manager.ts` | Health probe, optional local child startup, owned-child shutdown |
 | `async.ts` | Shared request deadlines, cancellation, and abortable waits |
 | Job service and job tools | Persist handles/results, correlate completion, observe, cancel, and request required input |
@@ -23,11 +25,11 @@ opencode-mcp is a stdio bridge. OpenCode owns coding sessions and model executio
 | `tools/` | OpenCode API tools and combined workflows |
 | `resources.ts`, `prompts.ts` | Data reads and reusable workflow instructions |
 
-The full catalog is available by default. The essential profile advertises a smaller group of common workflows. Both profiles use the same implementations and OpenCode permission model.
+The full catalog is available by default. The essential profile advertises a smaller group of common workflows. Both profiles keep their names and use the selected backend's OpenCode permission model. The [generated inventory](compatibility.md) records supported, deliberately V1-only, and upstream-blocked operations. V2 calls never fall through to guessed V1 endpoints.
 
 ## Async State and Recovery
 
-The async workflow distinguishes submission from completion. A job can be `accepted`, `running`, `input_required`, `completed`, `failed`, `cancelled`, or `unknown`. Completion is correlated with the submitted work and an assistant message; an omitted idle entry in OpenCode's status map is not sufficient evidence by itself.
+The async workflow distinguishes submission from completion. A job can be `accepted`, `running`, `input_required`, `completed`, `failed`, `cancelled`, or `unknown`. Completion is correlated with the submitted work; an omitted idle entry in OpenCode's status map is not sufficient evidence by itself. V1 observation uses submitted message/assistant correlation. V2 uses its inbox and execution/event identities, retaining the evidence needed after reconnect. V1 record interpretation is preserved; V2 records carry their backend identity.
 
 `opencode_fire` returns promptly after dispatch. `opencode_check` observes work; `opencode_wait` and `opencode_run` wait within a bounded observation period. Expiring that period returns progress with a timeout indication. It does not abort the OpenCode session. Requests for permission or answers surface as `input_required` so the caller can respond explicitly. Cancellation of an observation stops waiting; use the job-cancel or session-abort tool to stop remote work.
 
@@ -51,7 +53,13 @@ Project-scoped calls include an absolute `directory` on the OpenCode server. Val
 
 Authentication routes are global. `opencode_project_init` is a separate local-filesystem operation: it accepts `path`, checks protected roots and symlinks, creates the directory if necessary, then opens it through OpenCode. It does not create remote projects.
 
-On startup the process probes the configured endpoint. With automatic startup enabled, the SDK can launch `opencode serve` on a local loopback HTTP endpoint. Concurrent starts are coalesced by endpoint. Shutdown handlers stop only owned child processes; externally managed servers remain running.
+On startup the process validates the selected backend's health/info contract. An explicit endpoint is authoritative. Otherwise, it probes the default loopback endpoint and checks the existing V2 registration. The pinned 2.0.6 discovery implementation hides authentication failures as an absent result, so the bridge preflights the documented registration file with a bounded authenticated probe before `Service.discover()` selects the service. Present-but-invalid registrations fail closed. It never calls V2 `Service.ensure()` or `Service.stop()`.
+
+With automatic startup explicitly enabled and no existing endpoint or registration, the V1 SDK can launch `opencode serve` on a local loopback HTTP endpoint. Concurrent starts are coalesced by endpoint. Shutdown handlers stop only owned child processes; externally managed servers remain running. A failed owned-child startup closes only that child. HTTP 401/403 is terminal and never enables another probe or unauthenticated retry.
+
+Backend identity records kind, version, connection source, process ownership, and whether execution can survive MCP disconnect. In auto mode, unresolved startup can leave the stdio catalog available, but backend operations return `BACKEND_UNAVAILABLE` before mutation. Reconnect after repairing the server. Forced backend mismatches and authentication failures terminate startup.
+
+Doctor shares a 15-second deadline across configuration, detection, and read-only readiness checks. It performs no startup, inference, session creation, or configuration writes. Its versioned JSON uses fixed sanitized messages rather than raw server bodies; reported provider configuration is not credential verification.
 
 ## Transport and Observation Costs
 
@@ -73,6 +81,6 @@ Unit tests cover formatting, validation, job state, and tool behavior. Local HTT
 
 ### Shared-session cancellation
 
-OpenCode aborts a whole session. Job cancellation refuses a known newer turn, but another client can submit work between that check and the abort request. Use the default dedicated session per job when cancellation must not affect concurrent work.
+V1 OpenCode aborts a whole session. Job cancellation refuses a known newer turn, but another client can submit work between that check and the abort request. V2 can cancel a queued item by its exact inbox ID; interrupting a running execution is also session-wide. V2 checks execution ownership and additional queued work before interrupting, but another client can submit between that check and the write. Use the default dedicated session per job on either backend when cancellation must not affect concurrent work. Uncertain backend responses remain uncertain and are not replayed.
 
 A native `tasks/cancel` acknowledgement records cancellation intent; it does not prove execution has stopped. Poll `tasks/get` for the eventual state, especially after a lost backend response.

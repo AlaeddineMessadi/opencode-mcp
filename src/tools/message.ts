@@ -1,3 +1,4 @@
+import { operate, selectModel } from "../backends/adapter.js";
 import { z } from "zod";
 import { McpServer } from "../mcp-server.js";
 import { OpenCodeClient } from "../client.js";
@@ -26,17 +27,15 @@ export function registerMessageTools(
         .number()
         .optional()
         .describe("Maximum number of messages to return"),
+      cursor: z.string().optional().describe("V2 continuation cursor"),
       directory: directoryParam,
     },
-    async ({ sessionId, limit, directory }) => {
+    async ({ sessionId, limit, cursor, directory }) => {
       try {
         const query: Record<string, string> = {};
         if (limit !== undefined) query.limit = String(limit);
-        const messages = await client.get(
-          `/session/${sessionId}/message`,
-          query,
-          directory,
-        );
+        if (cursor) query.cursor = cursor;
+        const messages = await operate(client, "messages.list", { sessionId: sessionId, query: query, directory: directory });
         return toolResult(formatMessageList(messages as unknown[]), false, { data: messages });
       } catch (e) {
         return toolError(e);
@@ -54,11 +53,7 @@ export function registerMessageTools(
     },
     async ({ sessionId, messageId, directory }) => {
       try {
-        const msg = await client.get(
-          `/session/${sessionId}/message/${messageId}`,
-          undefined,
-          directory,
-        );
+        const msg = await operate(client, "messages.get", { sessionId: sessionId, messageId: messageId, directory: directory });
         return toolResult(formatMessageResponse(msg), false, { data: msg });
       } catch (e) {
         return toolError(e);
@@ -108,18 +103,14 @@ export function registerMessageTools(
         const body: Record<string, unknown> = {
           parts: [{ type: "text", text }],
         };
-        const model = applyModelDefaults(providerID, modelID);
+        const model = selectModel(client, providerID, modelID);
         if (model) body.model = model;
-        if (variant) body.variant = variant;
-        if (agent) body.agent = agent;
+        if (variant || client.getBackendIdentity?.().kind === "v2" && variant !== undefined) body.variant = variant;
+        if (agent || client.getBackendIdentity?.().kind === "v2" && agent !== undefined) body.agent = agent;
         if (noReply !== undefined) body.noReply = noReply;
         if (system) body.system = system;
         if (format) body.format = format;
-        const response = await client.post(
-          `/session/${sessionId}/message`,
-          body,
-          { directory },
-        );
+        const response = await operate(client, "messages.send", { sessionId: sessionId, body: body, ...({ directory }) });
 
         const analysis = analyzeMessageResponse(response);
         const formatted = formatMessageResponse(response);
@@ -165,12 +156,12 @@ export function registerMessageTools(
           messageID: messageId,
           parts: [{ type: "text", text }],
         };
-        const model = applyModelDefaults(providerID, modelID);
+        const model = selectModel(client, providerID, modelID);
         if (model) body.model = model;
-        if (variant) body.variant = variant;
-        if (agent) body.agent = agent;
+        if (variant || client.getBackendIdentity?.().kind === "v2" && variant !== undefined) body.variant = variant;
+        if (agent || client.getBackendIdentity?.().kind === "v2" && agent !== undefined) body.agent = agent;
         if (format) body.format = format;
-        await client.post(`/session/${sessionId}/prompt_async`, body, { directory });
+        await operate(client, "messages.enqueue", { sessionId: sessionId, body: body, ...({ directory }) });
         return toolResult(
           `Message sent asynchronously. Use opencode_wait({sessionId: "${sessionId}", messageId: "${messageId}"}) to observe this exact turn.`,
           false,
@@ -215,16 +206,12 @@ export function registerMessageTools(
           command,
           arguments: args ?? "",
         };
-        if (agent) body.agent = agent;
-        const cmdModel = applyModelDefaults(providerID, modelID);
+        if (agent || client.getBackendIdentity?.().kind === "v2" && agent !== undefined) body.agent = agent;
+        const cmdModel = selectModel(client, providerID, modelID);
         if (cmdModel) body.model = `${cmdModel.providerID}/${cmdModel.modelID}`;
-        if (variant) body.variant = variant;
-        const result = await client.post(
-          `/session/${sessionId}/command`,
-          body,
-          { directory },
-        );
-        return toolResult(formatMessageResponse(result), false, { data: result });
+        if (variant || client.getBackendIdentity?.().kind === "v2" && variant !== undefined) body.variant = variant;
+        const result = await operate(client, "messages.command", { sessionId: sessionId, body: body, ...({ directory }) });
+        return toolResult(formatMessageResponse(result), (result as { isError?: boolean })?.isError === true, { data: result });
       } catch (e) {
         return toolError(e);
       }
@@ -245,14 +232,10 @@ export function registerMessageTools(
     async ({ sessionId, command, agent, providerID, modelID, directory }) => {
       try {
         const body: Record<string, unknown> = { command, agent };
-        const shellModel = applyModelDefaults(providerID, modelID);
+        const shellModel = selectModel(client, providerID, modelID);
         if (shellModel) body.model = shellModel;
-        const result = await client.post(
-          `/session/${sessionId}/shell`,
-          body,
-          { directory },
-        );
-        return toolResult(formatMessageResponse(result), false, { data: result });
+        const result = await operate(client, "messages.shell", { sessionId: sessionId, body: body, ...({ directory }) });
+        return toolResult(formatMessageResponse(result), (result as { isError?: boolean })?.isError === true, { data: result });
       } catch (e) {
         return toolError(e);
       }

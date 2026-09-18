@@ -192,6 +192,26 @@ describe("event polling results", () => {
     expect(result.structuredContent.partial).toBe(false);
   });
 
+  it("recognizes an inner timeout at the shared deadline before the outer timer fires", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1000);
+    const client = new OpenCodeClient({ baseUrl: "http://localhost:4096" });
+    vi.spyOn(client, "subscribeSSE").mockImplementation(async function* (_path, options) {
+      now.mockReturnValue(options!.deadline!);
+      throw new DOMException("Inner deadline expired", "TimeoutError");
+    });
+    const result = await eventHandler(client)({ durationMs: 200 });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent.partial).toBe(false);
+  });
+
+  it("does not swallow an early upstream TimeoutError", async () => {
+    const client = new OpenCodeClient({ baseUrl: "http://localhost:4096" });
+    vi.spyOn(client, "subscribeSSE").mockImplementation(async function* () {
+      throw new DOMException("Upstream operation timed out", "TimeoutError");
+    });
+    expect((await eventHandler(client)({ durationMs: 2000 })).isError).toBe(true);
+  });
+
   it("keeps caller cancellation visible", async () => {
     const controller = new AbortController();
     controller.abort();

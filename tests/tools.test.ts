@@ -1661,7 +1661,7 @@ describe("Tool handlers", () => {
         post: vi.fn().mockImplementation((path: string) => {
           callCount++;
           if (path.startsWith("/permission/")) {
-            return Promise.reject(new Error("404 not found"));
+            return Promise.reject(new OpenCodeError("404 not found", 404, "POST", path, "not found"));
           }
           return Promise.resolve({});
         }),
