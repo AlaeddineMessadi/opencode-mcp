@@ -1,6 +1,6 @@
 {
   "name": "opencode-mcp",
-  "version": "3.0.0",
+  "version": "3.1.0-rc.1",
   "description": "MCP server for OpenCode coding workflows, durable async jobs, project resources, and explicit user input",
   "type": "module",
   "main": "dist/index.js",
@@ -11,7 +11,9 @@
     "dist",
     "README.md",
     "LICENSE",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "MIGRATION.md",
+    "docs"
   ],
   "scripts": {
     "build": "tsc",
@@ -24,7 +26,9 @@
     "prepublishOnly": "npm run build",
     "pretest": "npm run build",
     "docs:generate": "npm run build && node scripts/generate-tool-docs.mjs",
-    "docs:check": "npm run build && node scripts/generate-tool-docs.mjs --check"
+    "docs:check": "npm run build && node scripts/generate-tool-docs.mjs --check",
+    "test:package": "node scripts/test-package.mjs",
+    "test:compat": "node scripts/test-compat.mjs"
   },
   "keywords": [
     "mcp",
@@ -57,6 +61,7 @@
     "@modelcontextprotocol/core": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "@opencode-ai/sdk": "^1.18.31",
+    "@opencode/client": "2.0.6",
     "zod": "^4.6.5"
   },
   "devDependencies": {

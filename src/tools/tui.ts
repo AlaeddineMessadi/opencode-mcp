@@ -1,3 +1,4 @@
+import { operate } from "../backends/adapter.js";
 /**
  * TUI control tools — drive the OpenCode TUI remotely.
  * Useful for IDE integrations and automation.
@@ -18,7 +19,7 @@ export function registerTuiTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ text, directory }) => {
       try {
-        await client.post("/tui/append-prompt", { text }, { directory });
+        await operate(client, "tui.append-prompt", { body: { text }, ...({ directory }) });
         return toolResult("Text appended to prompt.");
       } catch (e) {
         return toolError(e);
@@ -34,7 +35,7 @@ export function registerTuiTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ directory }) => {
       try {
-        await client.post("/tui/submit-prompt", undefined, { directory });
+        await operate(client, "tui.submit-prompt", { ...({ directory }) });
         return toolResult("Prompt submitted.");
       } catch (e) {
         return toolError(e);
@@ -50,7 +51,7 @@ export function registerTuiTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ directory }) => {
       try {
-        await client.post("/tui/clear-prompt", undefined, { directory });
+        await operate(client, "tui.clear-prompt", { ...({ directory }) });
         return toolResult("Prompt cleared.");
       } catch (e) {
         return toolError(e);
@@ -67,7 +68,7 @@ export function registerTuiTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ command, directory }) => {
       try {
-        await client.post("/tui/execute-command", { command }, { directory });
+        await operate(client, "tui.execute-command", { body: { command }, ...({ directory }) });
         return toolResult(`Command '${command}' executed.`);
       } catch (e) {
         return toolError(e);
@@ -92,7 +93,7 @@ export function registerTuiTools(server: McpServer, client: OpenCodeClient) {
         const body: Record<string, string> = { message };
         if (title) body.title = title;
         if (variant) body.variant = variant;
-        await client.post("/tui/show-toast", body, { directory });
+        await operate(client, "tui.show-toast", { body: body, ...({ directory }) });
         return toolResult("Toast shown.");
       } catch (e) {
         return toolError(e);
@@ -108,7 +109,7 @@ export function registerTuiTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ directory }) => {
       try {
-        await client.post("/tui/open-help", undefined, { directory });
+        await operate(client, "tui.open-help", { ...({ directory }) });
         return toolResult("Help dialog opened.");
       } catch (e) {
         return toolError(e);
@@ -124,7 +125,7 @@ export function registerTuiTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ directory }) => {
       try {
-        await client.post("/tui/open-sessions", undefined, { directory });
+        await operate(client, "tui.open-sessions", { ...({ directory }) });
         return toolResult("Session selector opened.");
       } catch (e) {
         return toolError(e);
@@ -140,7 +141,7 @@ export function registerTuiTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ directory }) => {
       try {
-        await client.post("/tui/open-models", undefined, { directory });
+        await operate(client, "tui.open-models", { ...({ directory }) });
         return toolResult("Model selector opened.");
       } catch (e) {
         return toolError(e);
@@ -156,7 +157,7 @@ export function registerTuiTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ directory }) => {
       try {
-        await client.post("/tui/open-themes", undefined, { directory });
+        await operate(client, "tui.open-themes", { ...({ directory }) });
         return toolResult("Theme selector opened.");
       } catch (e) {
         return toolError(e);

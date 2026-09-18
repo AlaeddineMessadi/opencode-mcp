@@ -1,3 +1,4 @@
+import { operate } from "../backends/adapter.js";
 import { z } from "zod";
 import { McpServer } from "../mcp-server.js";
 import { OpenCodeClient } from "../client.js";
@@ -12,9 +13,10 @@ export function registerConfigTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ directory }) => {
       try {
-        const config = await client.get("/config", undefined, directory);
+        const config = await operate(client, "configuration.get", { directory: directory });
         const c = redactSecrets(config) as Record<string, unknown>;
 
+        if (client.getBackendIdentity?.().kind === "v2") return toolResult(`## V2 Configuration Sources\nThese ordered sources are not an effective merged configuration.\n${safeStringify(c)}`, false, { data: c });
         // Build a compact summary instead of dumping entire config
         const lines: string[] = [];
         for (const [k, v] of Object.entries(c)) {
@@ -63,7 +65,7 @@ export function registerConfigTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ config, directory }) => {
       try {
-        return toolJson(redactSecrets(await client.patch("/config", config, directory)));
+        return toolJson(redactSecrets(await operate(client, "configuration.update", { body: config, directory: directory })));
       } catch (e) {
         return toolError(e);
       }
@@ -78,7 +80,7 @@ export function registerConfigTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ directory }) => {
       try {
-        const raw = await client.get("/config/providers", undefined, directory);
+        const raw = await operate(client, "providers.configured", { directory: directory });
         const wrapper = raw as Record<string, unknown>;
 
         // API returns { providers: [...], default: { providerId: modelId, ... } }

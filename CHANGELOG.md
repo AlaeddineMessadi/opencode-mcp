@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0-rc.1] - 2026-09-17
+
+Evaluation candidate for the V1/V2 compatibility foundation. The original 65-operation V2 completion gate remains blocked by upstream command correlation; this is not a completed milestone declaration.
+
+### Added
+
+- Typed backend operations, normalized results, and one compatibility manifest for all 87 tools, 10 resources, 4 templates, and 6 prompts. V2 currently maps 64 tools, retains 22 explicit V1-only exceptions, and rejects `command_execute` before mutation because V2 2.0.6 supplies no execution receipt or caller-assigned command ID.
+- Automatic or forced backend detection, read-only V2 service discovery, ownership reporting, and standalone `doctor`/`--check`, help, and version commands.
+- V2 queue submission identity, durable log observation with saved correlation state, versioned job storage, and shared ordinary-tool/native-Task workflows.
+- V2 model/agent preservation, scoped permissions, typed form values, exact OAuth attempt IDs, explicit diff ranges, staged reverts, pagination metadata, and project-filtered events.
+- macOS CI, production archive installation tests, and isolated V1/V2 compatibility checks.
+
+### Compatibility and validation
+
+- V1 behavior and stored record format remain supported. Authentication errors and ambiguous mutations never trigger fallback submission or replay.
+- Model-free integration exercised `opencode-ai@1.18.31` and `@opencode/cli@2.0.6` on Node.js 22.23.2, macOS arm64. The V2 client dependency is pinned to `@opencode/client@2.0.6`.
+- Live provider inference, live job execution, OAuth completion, and interactive permission/form flows were not verified. Those paths have fixture-backed contract and recovery tests; client UI compatibility is not claimed from those fixtures.
+- See [migration guidance](MIGRATION.md) and the generated [compatibility matrix](docs/compatibility.md) for guarded options and the upstream blocker. No package has been published by this change.
+
 ## [3.0.0] - 2026-09-16
 
 ### Breaking changes

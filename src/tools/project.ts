@@ -1,3 +1,4 @@
+import { operate } from "../backends/adapter.js";
 import { McpServer } from "../mcp-server.js";
 import { OpenCodeClient } from "../client.js";
 import { toolJson, toolError, toolResult, directoryParam } from "../helpers.js";
@@ -95,7 +96,7 @@ export function registerProjectTools(
     },
     async ({ directory }) => {
       try {
-        const raw = await client.get("/project", undefined, directory);
+        const raw = await operate(client, "projects.list", { directory: directory });
         const projects = Array.isArray(raw) ? raw as Array<Record<string, unknown>> : [];
         if (projects.length === 0) {
           return toolResult("No projects found.");
@@ -183,7 +184,7 @@ export function registerProjectTools(
 
         // ── Register with OpenCode server (best-effort) ─────────────
         try {
-          await client.get("/project/current", undefined, realPath);
+          await operate(client, "projects.current", { directory: realPath });
         } catch (e) {
           console.error(
             `opencode_project_init: project ping failed for ${realPath}: ${e instanceof Error ? e.message : String(e)}`,
@@ -207,7 +208,7 @@ export function registerProjectTools(
     },
     async ({ directory }) => {
       try {
-        const raw = await client.get("/project/current", undefined, directory);
+        const raw = await operate(client, "projects.current", { directory: directory });
         const p = raw as Record<string, unknown>;
         if (p && typeof p === "object") {
           return toolResult(formatProject(p));

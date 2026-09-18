@@ -1,6 +1,6 @@
 # Usage Examples
 
-These examples describe version 3.0.0. Replace provider/model placeholders with IDs discovered from `opencode_setup` and `opencode_provider_models`. All `directory` values refer to absolute paths on the OpenCode server.
+These examples describe the V1/V2 compatibility foundation. Replace provider/model placeholders with IDs discovered from `opencode_setup` and `opencode_provider_models`. All `directory` values refer to absolute paths on the OpenCode server. See [migration](../MIGRATION.md) for backend-specific restrictions, V2 OAuth, and typed input examples.
 
 ## Quick Question and Follow-Up
 
@@ -21,7 +21,7 @@ opencode_reply({
 })
 ```
 
-If both default provider/model environment variables are configured, you may omit them from individual calls. An optional `variant` selects an available model variant; use a value supported by the chosen provider/model.
+Configured provider/model defaults apply to new sessions. Existing V2 sessions retain their model, variant, and agent; omitting those arguments continues the existing selections, and conflicting overrides are rejected. An optional `variant` on new work must be supported by the selected provider/model.
 
 ## Background Work and Recovery
 
@@ -70,7 +70,7 @@ When a job reports `input_required`, inspect its requests. July 2026 MCP clients
 opencode_job_input({ jobId: "<returned-job-id>" })
 ```
 
-Or send an explicit response after the user has chosen it:
+For V1, send an explicit response after the user has chosen it:
 
 ```javascript
 opencode_job_input({
@@ -86,7 +86,11 @@ Question answers are an array per question, each containing the selected answers
 
 Lower-level callers can use `opencode_question_list`, `opencode_question_reply({requestId, answers, directory})`, and `opencode_question_reject({requestId, directory})`. Existing `opencode_permission_list` and `opencode_session_permission` remain available.
 
-## Request Structured Model Output
+V2 uses typed field-keyed `values` instead of legacy question `answers`. Saved project approvals and session-wide rejections require explicit `scope`; dismissing a native permission form does not reject every pending request. Follow the [V2 input examples](../MIGRATION.md#v2-oauth-and-explicit-input), using the fields and scopes returned for the actual pending request.
+
+## Request Structured Model Output on V1
+
+V2 rejects JSON-schema output before dispatch; omit `format` or use text on V2. The following example and `StructuredOutput` permission guidance apply to V1.
 
 ```javascript
 opencode_run({
@@ -141,6 +145,8 @@ Create the directories or worktrees first. Sessions alone do not isolate file ch
 
 ## Review Completed Work
 
+On V1, a session-wide review is available without a range:
+
 ```javascript
 opencode_review_changes({
   directory: "/home/user/project",
@@ -155,3 +161,16 @@ opencode_conversation({
 ```
 
 Review the changes and test results before accepting the work. Resources and prompts offer additional entry points; see the [resources reference](resources.md), [prompts](prompts.md), and [generated tool schemas](tools.md).
+
+On V2, select an explicit message range rather than treating a default latest-turn diff as the entire session:
+
+```javascript
+opencode_review_changes({
+  directory: "/home/user/project",
+  sessionId: "<returned-session-id>",
+  from: "<first-message-in-range>",
+  to: "<last-message-in-range>"
+})
+```
+
+V2 whole-message reverts are staged and reversible; the bridge does not commit them automatically. Use `opencode_session_unrevert` to clear a staged revert.

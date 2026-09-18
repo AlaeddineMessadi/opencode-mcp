@@ -6,6 +6,8 @@ The full profile exposes **87 tools**; the essential profile exposes **25 tools*
 
 Set `OPENCODE_TOOL_PROFILE=essential` for the smaller catalog; `full` is the default. Profile availability is listed for each tool. Profiles control discovery, not OpenCode permissions.
 
+Tool names and schemas stay available across backends. Backend support is listed below and in the [generated compatibility inventory](compatibility.md); unavailable operations fail before mutation. Supported tools may have backend-specific option restrictions described in [migration](../MIGRATION.md).
+
 ## Input and Output Contracts
 
 When present, `directory` means an absolute path on the OpenCode server. Global authentication tools omit it; local project initialization uses `path`. See [configuration](configuration.md) for scope and [examples](examples.md) for workflows.
@@ -40,6 +42,8 @@ Ask OpenCode a question in one step. Creates a new session, sends your prompt, a
 
 **Profiles:** full, essential.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -53,7 +57,7 @@ Ask OpenCode a question in one step. Creates a new session, sends your prompt, a
 | `variant` | string | no | Model variant (e.g. 'fast', 'smart') |
 | `agent` | string | no | Agent to use (e.g. 'build', 'plan') |
 | `system` | string | no | Optional system prompt override |
-| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool. |
+| `format` | object \| object | no | Response format: plain text, or on V1 only JSON constrained by a JSON Schema. V2 rejects JSON Schema. V1 JSON Schema requires OpenCode permission for the StructuredOutput tool. |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
 
 #### Structured output
@@ -102,7 +106,7 @@ Ask OpenCode a question in one step. Creates a new session, sends your prompt, a
         "type": "string"
       },
       "format": {
-        "description": "Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool.",
+        "description": "Response format: plain text, or on V1 only JSON constrained by a JSON Schema. V2 rejects JSON Schema. V1 JSON Schema requires OpenCode permission for the StructuredOutput tool.",
         "oneOf": [
           {
             "type": "object",
@@ -183,6 +187,8 @@ Ask OpenCode a question in one step. Creates a new session, sends your prompt, a
 Get current task status, pending input, todos and file counts. Uses session summary metadata instead of fetching patches. Pass jobId for exact durable turn correlation; detailed includes response text.
 
 **Profiles:** full, essential.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
@@ -297,6 +303,8 @@ Get full project context in one call: current project, path, VCS info, config, a
 
 **Profiles:** full, essential.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -358,6 +366,8 @@ Get the full conversation history of a session, formatted for easy reading. Show
 
 **Profiles:** full, essential.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -366,6 +376,7 @@ Get the full conversation history of a session, formatted for easy reading. Show
 |---|---|---|---|
 | `sessionId` | string | yes | Session ID |
 | `limit` | number | no | Max messages to return (default: all) |
+| `cursor` | string | no | V2 continuation cursor |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
 
 #### Structured output
@@ -392,6 +403,10 @@ Get the full conversation history of a session, formatted for easy reading. Show
       "limit": {
         "description": "Max messages to return (default: all)",
         "type": "number"
+      },
+      "cursor": {
+        "description": "V2 continuation cursor",
+        "type": "string"
       },
       "directory": {
         "description": "Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory.",
@@ -432,6 +447,8 @@ Dispatch a durable background task and return its job, session and message IDs i
 
 **Profiles:** full, essential.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -446,7 +463,7 @@ Dispatch a durable background task and return its job, session and message IDs i
 | `variant` | string | no | Model variant |
 | `agent` | string | no | OpenCode agent name |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
-| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool. |
+| `format` | object \| object | no | Response format: plain text, or on V1 only JSON constrained by a JSON Schema. V2 rejects JSON Schema. V1 JSON Schema requires OpenCode permission for the StructuredOutput tool. |
 
 #### Structured output
 
@@ -505,7 +522,7 @@ Dispatch a durable background task and return its job, session and message IDs i
         "type": "string"
       },
       "format": {
-        "description": "Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool.",
+        "description": "Response format: plain text, or on V1 only JSON constrained by a JSON Schema. V2 rejects JSON Schema. V1 JSON Schema requires OpenCode permission for the StructuredOutput tool.",
         "oneOf": [
           {
             "type": "object",
@@ -609,6 +626,8 @@ Quick-test whether a provider is working. Creates a temporary session, sends a t
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -618,7 +637,7 @@ Quick-test whether a provider is working. Creates a temporary session, sends a t
 | `providerId` | string | yes | Provider ID to test (e.g. 'anthropic', 'openrouter') |
 | `modelID` | string | no | Specific model ID to test. If omitted, discovers the provider default or first available model. |
 | `variant` | string | no | Model variant |
-| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool. |
+| `format` | object \| object | no | Response format: plain text, or on V1 only JSON constrained by a JSON Schema. V2 rejects JSON Schema. V1 JSON Schema requires OpenCode permission for the StructuredOutput tool. |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
 
 #### Structured output
@@ -651,7 +670,7 @@ Quick-test whether a provider is working. Creates a temporary session, sends a t
         "type": "string"
       },
       "format": {
-        "description": "Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool.",
+        "description": "Response format: plain text, or on V1 only JSON constrained by a JSON Schema. V2 rejects JSON Schema. V1 JSON Schema requires OpenCode permission for the StructuredOutput tool.",
         "oneOf": [
           {
             "type": "object",
@@ -733,6 +752,8 @@ Send a follow-up message to an existing session. Use this to continue a conversa
 
 **Profiles:** full, essential.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -745,7 +766,7 @@ Send a follow-up message to an existing session. Use this to continue a conversa
 | `modelID` | string | no | Model ID |
 | `variant` | string | no | Model variant |
 | `agent` | string | no | Agent to use |
-| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool. |
+| `format` | object \| object | no | Response format: plain text, or on V1 only JSON constrained by a JSON Schema. V2 rejects JSON Schema. V1 JSON Schema requires OpenCode permission for the StructuredOutput tool. |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
 
 #### Structured output
@@ -790,7 +811,7 @@ Send a follow-up message to an existing session. Use this to continue a conversa
         "type": "string"
       },
       "format": {
-        "description": "Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool.",
+        "description": "Response format: plain text, or on V1 only JSON constrained by a JSON Schema. V2 rejects JSON Schema. V1 JSON Schema requires OpenCode permission for the StructuredOutput tool.",
         "oneOf": [
           {
             "type": "object",
@@ -873,6 +894,8 @@ Get a formatted summary of all file changes made in a session. Shows diffs in a 
 
 **Profiles:** full, essential.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -881,6 +904,8 @@ Get a formatted summary of all file changes made in a session. Shows diffs in a 
 |---|---|---|---|
 | `sessionId` | string | yes | Session ID |
 | `messageID` | string | no | Specific message ID to get diff for |
+| `from` | string | no | V2 first message in an explicit diff range |
+| `to` | string | no | V2 last message in an explicit diff range |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
 
 #### Structured output
@@ -906,6 +931,14 @@ Get a formatted summary of all file changes made in a session. Shows diffs in a 
       },
       "messageID": {
         "description": "Specific message ID to get diff for",
+        "type": "string"
+      },
+      "from": {
+        "description": "V2 first message in an explicit diff range",
+        "type": "string"
+      },
+      "to": {
+        "description": "V2 last message in an explicit diff range",
         "type": "string"
       },
       "directory": {
@@ -947,6 +980,8 @@ Send a task and wait for its correlated response. Returns a durable job ID; an o
 
 **Profiles:** full, essential.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -961,7 +996,7 @@ Send a task and wait for its correlated response. Returns a durable job ID; an o
 | `variant` | string | no | Model variant |
 | `agent` | string | no | OpenCode agent name |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
-| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool. |
+| `format` | object \| object | no | Response format: plain text, or on V1 only JSON constrained by a JSON Schema. V2 rejects JSON Schema. V1 JSON Schema requires OpenCode permission for the StructuredOutput tool. |
 | `maxDurationSeconds` | number | no | Maximum observation duration in seconds (default 600); timeout does not abort the job; maximum: 3600 |
 
 #### Structured output
@@ -1021,7 +1056,7 @@ Send a task and wait for its correlated response. Returns a durable job ID; an o
         "type": "string"
       },
       "format": {
-        "description": "Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool.",
+        "description": "Response format: plain text, or on V1 only JSON constrained by a JSON Schema. V2 rejects JSON Schema. V1 JSON Schema requires OpenCode permission for the StructuredOutput tool.",
         "oneOf": [
           {
             "type": "object",
@@ -1131,6 +1166,8 @@ Get a quick overview of all sessions with their titles and status. Useful to fin
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -1191,6 +1228,8 @@ Get a quick overview of all sessions with their titles and status. Useful to fin
 Check OpenCode status, provider configuration, and optionally initialize a project directory. Use this as the first step when starting work — it tells you what is ready and what still needs configuration.
 
 **Profiles:** full, essential.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
@@ -1253,6 +1292,8 @@ Get a quick status dashboard: server health, provider count, session count, and 
 
 **Profiles:** full, essential.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -1313,6 +1354,8 @@ Get a quick status dashboard: server health, provider count, session count, and 
 Wait for a session or durable job. Returns completed, failed, input_required, or a resumable timeout. Cancelling this wait stops observation; use job_cancel or session_abort to stop OpenCode.
 
 **Profiles:** full, essential.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
@@ -1438,6 +1481,8 @@ Explicitly abort the OpenCode session owned by a job. This also stops other work
 
 **Profiles:** full, essential.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -1533,6 +1578,8 @@ Explicitly abort the OpenCode session owned by a job. This also stops other work
 Observe a durable job by ID, including pending inputs and final results.
 
 **Profiles:** full, essential.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
@@ -1630,6 +1677,8 @@ Respond to a job's pending questions or permissions. Omit responses to request M
 
 **Profiles:** full, essential.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -1685,6 +1734,41 @@ Respond to a job's pending questions or permissions. Omit responses to request M
                 }
               }
             },
+            "values": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              }
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "scope": {
+              "type": "string",
+              "enum": [
+                "project",
+                "session"
+              ]
+            },
             "reply": {
               "type": "string",
               "enum": [
@@ -1738,6 +1822,8 @@ Respond to a job's pending questions or permissions. Omit responses to request M
 List locally retained jobs in this OpenCode server and credential scope.
 
 **Profiles:** full, essential.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
@@ -1802,6 +1888,8 @@ List locally retained jobs in this OpenCode server and credential scope.
 List pending OpenCode questions, optionally filtered to a session.
 
 **Profiles:** full, essential.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
@@ -1868,6 +1956,8 @@ Reject a pending OpenCode question explicitly.
 
 **Profiles:** full, essential.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -1875,6 +1965,7 @@ Reject a pending OpenCode question explicitly.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `requestId` | string | yes | minimum length: 1 |
+| `sessionId` | string | no |  |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
 
 #### Structured output
@@ -1897,6 +1988,9 @@ Reject a pending OpenCode question explicitly.
       "requestId": {
         "type": "string",
         "minLength": 1
+      },
+      "sessionId": {
+        "type": "string"
       },
       "directory": {
         "description": "Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory.",
@@ -1933,9 +2027,11 @@ Reject a pending OpenCode question explicitly.
 
 ### `opencode_question_reply`
 
-Answer an OpenCode question request. Supply one array of selected labels or free text per question.
+Answer an OpenCode question request. V1 accepts answers arrays. V2 accepts typed field-keyed values matching the returned form; include sessionId to identify the session.
 
 **Profiles:** full, essential.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -1944,7 +2040,9 @@ Answer an OpenCode question request. Supply one array of selected labels or free
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `requestId` | string | yes | minimum length: 1 |
-| `answers` | array<array<string>> | yes |  |
+| `sessionId` | string | no |  |
+| `answers` | array<array<string>> | no |  |
+| `values` | object | no |  |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
 
 #### Structured output
@@ -1968,6 +2066,9 @@ Answer an OpenCode question request. Supply one array of selected labels or free
         "type": "string",
         "minLength": 1
       },
+      "sessionId": {
+        "type": "string"
+      },
       "answers": {
         "type": "array",
         "items": {
@@ -1977,14 +2078,38 @@ Answer an OpenCode question request. Supply one array of selected labels or free
           }
         }
       },
+      "values": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      },
       "directory": {
         "description": "Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory.",
         "type": "string"
       }
     },
     "required": [
-      "requestId",
-      "answers"
+      "requestId"
     ],
     "additionalProperties": false
   },
@@ -2018,6 +2143,8 @@ Answer an OpenCode question request. Supply one array of selected labels or free
 List all pending permission requests across all sessions. When a session is blocked waiting for approval (e.g. to run a shell command or access a file outside the project), it appears here. Respond with `opencode_session_permission`.
 
 **Profiles:** full, essential.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
@@ -2079,6 +2206,8 @@ List all pending permission requests across all sessions. When a session is bloc
 Abort a running session
 
 **Profiles:** full, essential.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -2149,6 +2278,8 @@ Get child sessions of a session
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -2218,6 +2349,8 @@ Create a new session. Optionally provide a parentID to create a child session, a
 
 **Profiles:** full, essential.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -2226,6 +2359,10 @@ Create a new session. Optionally provide a parentID to create a child session, a
 |---|---|---|---|
 | `parentID` | string | no | Parent session ID |
 | `title` | string | no | Session title |
+| `providerID` | string | no |  |
+| `modelID` | string | no |  |
+| `variant` | string | no |  |
+| `agent` | string | no |  |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
 
 #### Structured output
@@ -2252,6 +2389,18 @@ Create a new session. Optionally provide a parentID to create a child session, a
       },
       "title": {
         "description": "Session title",
+        "type": "string"
+      },
+      "providerID": {
+        "type": "string"
+      },
+      "modelID": {
+        "type": "string"
+      },
+      "variant": {
+        "type": "string"
+      },
+      "agent": {
         "type": "string"
       },
       "directory": {
@@ -2294,6 +2443,8 @@ Create a new session. Optionally provide a parentID to create a child session, a
 Delete a session and all its data
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -2364,6 +2515,8 @@ Get the diff for a session, optionally for a specific message
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -2372,6 +2525,8 @@ Get the diff for a session, optionally for a specific message
 |---|---|---|---|
 | `id` | string | yes | Session ID |
 | `messageID` | string | no | Message ID (optional) |
+| `from` | string | no | V2 first message in an explicit diff range |
+| `to` | string | no | V2 last message in an explicit diff range |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
 
 #### Structured output
@@ -2397,6 +2552,14 @@ Get the diff for a session, optionally for a specific message
       },
       "messageID": {
         "description": "Message ID (optional)",
+        "type": "string"
+      },
+      "from": {
+        "description": "V2 first message in an explicit diff range",
+        "type": "string"
+      },
+      "to": {
+        "description": "V2 last message in an explicit diff range",
         "type": "string"
       },
       "directory": {
@@ -2437,6 +2600,8 @@ Get the diff for a session, optionally for a specific message
 Fork an existing session, optionally at a specific message
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -2512,6 +2677,8 @@ Get details of a specific session by ID
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -2580,6 +2747,8 @@ Get details of a specific session by ID
 Analyze the app and create AGENTS.md for a session. NOTE: This is a long-running operation that may take 30-60+ seconds depending on project size.
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -2673,12 +2842,16 @@ List all sessions
 
 **Profiles:** full, essential.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
+| `limit` | integer | no | maximum: 9007199254740991 |
+| `cursor` | string | no | V2 continuation cursor |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
 
 #### Structured output
@@ -2698,6 +2871,15 @@ List all sessions
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "properties": {
+      "limit": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "cursor": {
+        "description": "V2 continuation cursor",
+        "type": "string"
+      },
       "directory": {
         "description": "Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory.",
         "type": "string"
@@ -2730,9 +2912,11 @@ List all sessions
 
 ### `opencode_session_permission`
 
-Respond to a permission request in a session. Use `opencode_permission_list` to see pending requests. Reply values: 'once' (approve this request only), 'always' (approve this + future matching requests for this session), 'reject' (deny the request).
+Respond to a permission request in a session. Use `opencode_permission_list` to see pending requests. Reply values: 'once' (approve this request only), 'always' (V1 session behavior; V2 project-wide saved approval requiring scope=project), 'reject' (V2 denies ALL pending session requests requiring scope=session).
 
 **Profiles:** full, essential.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -2743,6 +2927,7 @@ Respond to a permission request in a session. Use `opencode_permission_list` to 
 | `id` | string | yes | Session ID |
 | `permissionID` | string | yes | Permission request ID |
 | `reply` | "once" \| "always" \| "reject" | yes | Response to the permission request: 'once' to approve once, 'always' to auto-approve matching future requests, 'reject' to deny |
+| `scope` | "project" \| "session" | no | V2 explicit acknowledgment: always applies to the project; reject denies all pending session requests |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
 
 #### Structured output
@@ -2778,6 +2963,14 @@ Respond to a permission request in a session. Use `opencode_permission_list` to 
           "reject"
         ],
         "description": "Response to the permission request: 'once' to approve once, 'always' to auto-approve matching future requests, 'reject' to deny"
+      },
+      "scope": {
+        "description": "V2 explicit acknowledgment: always applies to the project; reject denies all pending session requests",
+        "type": "string",
+        "enum": [
+          "project",
+          "session"
+        ]
       },
       "directory": {
         "description": "Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory.",
@@ -2819,6 +3012,8 @@ Respond to a permission request in a session. Use `opencode_permission_list` to 
 Revert a message in a session
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -2900,6 +3095,8 @@ Search sessions by keyword in title. Useful for finding a specific session among
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -2968,6 +3165,8 @@ Search sessions by keyword in title. Useful for finding a specific session among
 Share a session publicly
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -3038,6 +3237,8 @@ Get status for all sessions (running, idle, etc.)
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -3098,6 +3299,8 @@ Get status for all sessions (running, idle, etc.)
 Summarize a session using a specified model. NOTE: This is a long-running operation that may take 30-60+ seconds.
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -3185,6 +3388,8 @@ Get the todo list for a session
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -3253,6 +3458,8 @@ Get the todo list for a session
 Restore all reverted messages in a session
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -3323,6 +3530,8 @@ Unshare a previously shared session
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -3391,6 +3600,8 @@ Unshare a previously shared session
 Update session properties (e.g. title)
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -3467,6 +3678,8 @@ Update session properties (e.g. title)
 Execute a slash command in a session (e.g. /init, /undo, /redo)
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 blocked. V2 2.0.6 command accepts no caller identifier and returns void; exact execution completion cannot be correlated safely.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -3568,6 +3781,8 @@ Get details of a specific message in a session
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -3643,6 +3858,8 @@ List all messages in a session with formatted output showing roles and content
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -3651,6 +3868,7 @@ List all messages in a session with formatted output showing roles and content
 |---|---|---|---|
 | `sessionId` | string | yes | Session ID |
 | `limit` | number | no | Maximum number of messages to return |
+| `cursor` | string | no | V2 continuation cursor |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
 
 #### Structured output
@@ -3677,6 +3895,10 @@ List all messages in a session with formatted output showing roles and content
       "limit": {
         "description": "Maximum number of messages to return",
         "type": "number"
+      },
+      "cursor": {
+        "description": "V2 continuation cursor",
+        "type": "string"
       },
       "directory": {
         "description": "Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory.",
@@ -3717,6 +3939,8 @@ Send a prompt message to a session and wait for the AI response. Use parts to se
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -3731,7 +3955,7 @@ Send a prompt message to a session and wait for the AI response. Use parts to se
 | `agent` | string | no | Agent to use |
 | `noReply` | boolean | no | If true, inject context without triggering AI response (useful for plugins) |
 | `system` | string | no | System prompt override |
-| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool. |
+| `format` | object \| object | no | Response format: plain text, or on V1 only JSON constrained by a JSON Schema. V2 rejects JSON Schema. V1 JSON Schema requires OpenCode permission for the StructuredOutput tool. |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
 
 #### Structured output
@@ -3784,7 +4008,7 @@ Send a prompt message to a session and wait for the AI response. Use parts to se
         "type": "string"
       },
       "format": {
-        "description": "Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool.",
+        "description": "Response format: plain text, or on V1 only JSON constrained by a JSON Schema. V2 rejects JSON Schema. V1 JSON Schema requires OpenCode permission for the StructuredOutput tool.",
         "oneOf": [
           {
             "type": "object",
@@ -3867,6 +4091,8 @@ Send a prompt asynchronously and return its messageId. Pass sessionId and messag
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -3879,7 +4105,7 @@ Send a prompt asynchronously and return its messageId. Pass sessionId and messag
 | `modelID` | string | no | Model ID (e.g. 'claude-3-5-sonnet-20241022') |
 | `variant` | string | no | Model variant (e.g. 'fast', 'smart') |
 | `agent` | string | no | Agent to use |
-| `format` | object \| object | no | Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool. |
+| `format` | object \| object | no | Response format: plain text, or on V1 only JSON constrained by a JSON Schema. V2 rejects JSON Schema. V1 JSON Schema requires OpenCode permission for the StructuredOutput tool. |
 | `directory` | string | no | Absolute path to the project directory. When provided, the request targets that project. If omitted, the OpenCode server uses its own working directory. |
 
 #### Structured output
@@ -3924,7 +4150,7 @@ Send a prompt asynchronously and return its messageId. Pass sessionId and messag
         "type": "string"
       },
       "format": {
-        "description": "Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool.",
+        "description": "Response format: plain text, or on V1 only JSON constrained by a JSON Schema. V2 rejects JSON Schema. V1 JSON Schema requires OpenCode permission for the StructuredOutput tool.",
         "oneOf": [
           {
             "type": "object",
@@ -4006,6 +4232,8 @@ Send a prompt asynchronously and return its messageId. Pass sessionId and messag
 Run a shell command through the opencode session
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -4100,6 +4328,8 @@ List files and directories at a path
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -4165,6 +4395,8 @@ List files and directories at a path
 Read the content of a file
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
@@ -4235,6 +4467,8 @@ Get status for tracked files (VCS changes: modified, added, deleted, etc.)
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -4295,6 +4529,8 @@ Get status for tracked files (VCS changes: modified, added, deleted, etc.)
 Find files and directories by name (fuzzy match)
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
@@ -4384,6 +4620,8 @@ Find workspace symbols by name (functions, classes, variables, etc.)
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -4452,6 +4690,8 @@ Find workspace symbols by name (functions, classes, variables, etc.)
 Search for text patterns in project files (regex supported). Returns file paths, line numbers, and matching lines.
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
 
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
@@ -4524,6 +4764,8 @@ Get the current opencode configuration
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -4585,6 +4827,8 @@ List all configured providers and their default models
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -4645,6 +4889,8 @@ List all configured providers and their default models
 Update the opencode configuration. Pass a partial config object with fields to update.
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -4720,6 +4966,8 @@ Update the opencode configuration. Pass a partial config object with fields to u
 Set authentication credentials for a provider (e.g. API key). Credentials are stored globally and shared across all projects.
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -4797,6 +5045,8 @@ Get available authentication methods for all providers
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -4858,6 +5108,8 @@ List all configured providers with their connection status. Returns a compact su
 
 **Profiles:** full, essential.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -4918,6 +5170,8 @@ List all configured providers with their connection status. Returns a compact su
 List available models for a specific provider. Call opencode_provider_list first to see provider IDs.
 
 **Profiles:** full, essential.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
@@ -4993,6 +5247,8 @@ Start OAuth authorization for a provider
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -5001,6 +5257,9 @@ Start OAuth authorization for a provider
 |---|---|---|---|
 | `providerId` | string | yes | Provider ID to authorize |
 | `method` | integer | yes | Auth method index from opencode_provider_auth_methods (default 0); minimum: 0; maximum: 9007199254740991; default: 0 |
+| `integrationId` | string | no |  |
+| `methodId` | string | no |  |
+| `values` | object | no |  |
 | `inputs` | object | no | Additional inputs requested by the selected authentication method |
 
 #### Structured output
@@ -5030,6 +5289,37 @@ Start OAuth authorization for a provider
         "type": "integer",
         "minimum": 0,
         "maximum": 9007199254740991
+      },
+      "integrationId": {
+        "type": "string"
+      },
+      "methodId": {
+        "type": "string"
+      },
+      "values": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        }
       },
       "inputs": {
         "description": "Additional inputs requested by the selected authentication method",
@@ -5077,6 +5367,8 @@ Handle OAuth callback for a provider
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -5110,20 +5402,24 @@ Handle OAuth callback for a provider
       "callbackData": {
         "type": "object",
         "properties": {
+          "attemptId": {
+            "description": "V2 exact attemptId from authorization",
+            "type": "string"
+          },
+          "integrationId": {
+            "type": "string"
+          },
           "method": {
+            "description": "V1 method index used for authorization; V2 uses the exact attemptId",
             "type": "integer",
             "minimum": 0,
-            "maximum": 9007199254740991,
-            "description": "The method index used for authorization"
+            "maximum": 9007199254740991
           },
           "code": {
             "description": "Authorization code for methods that request one",
             "type": "string"
           }
         },
-        "required": [
-          "method"
-        ],
         "additionalProperties": false,
         "description": "OAuth callback data"
       }
@@ -5164,6 +5460,8 @@ Handle OAuth callback for a provider
 Append text to the TUI's prompt input field
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -5234,6 +5532,8 @@ Clear the current prompt text in the TUI
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -5294,6 +5594,8 @@ Clear the current prompt text in the TUI
 Execute a slash command through the TUI (e.g. '/init', '/undo')
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -5364,6 +5666,8 @@ Open the help dialog in the TUI
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -5424,6 +5728,8 @@ Open the help dialog in the TUI
 Open the model selector in the TUI
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -5486,6 +5792,8 @@ Open the session selector in the TUI
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -5547,6 +5855,8 @@ Open the theme selector in the TUI
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -5607,6 +5917,8 @@ Open the theme selector in the TUI
 Show a toast notification in the TUI
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -5693,6 +6005,8 @@ Submit the current prompt in the TUI (equivalent to pressing Enter)
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -5756,6 +6070,8 @@ Get the current active project
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -5816,6 +6132,8 @@ Get the current active project
 Initialize or open a project directory to host an independent OpenCode session. Use this to create new empty folders, or to explicitly open preexisting projects on the MCP host machine for parallel code generation workloads. This tool operates on the local filesystem; create remote server directories separately.
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -5881,6 +6199,8 @@ List all projects known to the opencode server
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -5943,6 +6263,8 @@ List all projects known to the opencode server
 Poll project events from OpenCode, or explicitly select global scope. Collects up to maxEvents within the duration. Connection failures are reported with any partial events; stopping observation does not abort remote work.
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
@@ -6030,6 +6352,8 @@ Check server health and version
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -6093,6 +6417,8 @@ List all available agents with their names, descriptions, and modes (primary/sub
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -6153,6 +6479,8 @@ List all available agents with their names, descriptions, and modes (primary/sub
 List all available commands (built-in and custom slash commands)
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
@@ -6215,6 +6543,8 @@ Get the status of configured formatters
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -6276,6 +6606,8 @@ Dispose the current opencode instance (shuts it down). WARNING: This is destruct
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
 #### Parameters
@@ -6336,6 +6668,8 @@ Dispose the current opencode instance (shuts it down). WARNING: This is destruct
 Write a log entry to the opencode server
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -6433,6 +6767,8 @@ Get the status of LSP (Language Server Protocol) servers
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -6493,6 +6829,8 @@ Get the status of LSP (Language Server Protocol) servers
 Add an MCP server dynamically to opencode
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 
@@ -6573,6 +6911,8 @@ Get the status of all MCP servers configured in opencode
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 supported.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -6633,6 +6973,8 @@ Get the status of all MCP servers configured in opencode
 Get the current working path of the opencode server
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
@@ -6695,6 +7037,8 @@ List all available tool IDs that the LLM can use (experimental)
 
 **Profiles:** full.
 
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
+
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
 #### Parameters
@@ -6755,6 +7099,8 @@ List all available tool IDs that the LLM can use (experimental)
 List tools with JSON schemas for a given provider and model (experimental)
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 unsupported. No equivalent published V2 API; V1-only capability.
 
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 
@@ -6830,6 +7176,8 @@ List tools with JSON schemas for a given provider and model (experimental)
 Get VCS (version control) info for the current project (branch, remote, status)
 
 **Profiles:** full.
+
+**Backends:** V1 supported; V2 supported.
 
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`.
 

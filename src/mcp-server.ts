@@ -1,3 +1,5 @@
+import { capabilityFor } from "./backends/capabilities.js";
+import type { BackendIdentity } from "./backends/contracts.js";
 /** Shared registration contract. SDK v2 owns protocol validation and transport serving. */
 import { McpServer as SdkServer, ResourceTemplate, type ServerContext, type ToolAnnotations,
   type ResourceMetadata, type ReadResourceCallback, type ReadResourceTemplateCallback,
@@ -47,6 +49,7 @@ export function withStructuredText(result: CallToolResult): CallToolResult {
 
 export class McpServer extends SdkServer {
   profile: ToolProfile = "full";
+  backendIdentity?: BackendIdentity;
   readonly catalog: Array<{ name: string; description: string; inputSchema: Record<string, unknown>;
     outputSchema: Record<string, unknown>; annotations: ToolAnnotations }> = [];
 
@@ -62,6 +65,10 @@ export class McpServer extends SdkServer {
     this.catalog.push({ name, description, inputSchema: z.toJSONSchema(input), outputSchema: z.toJSONSchema(output), annotations });
     return this.registerTool(name, { description, inputSchema: input, outputSchema: output, annotations },
       async (args, ctx) => withRequestOptions({ signal: ctx.mcpReq.signal }, async () => {
+        const capability = capabilityFor(name);
+        if (this.backendIdentity?.kind === "v2" && capability && capability.v2 !== "supported") {
+          return withStructuredText({ isError: true, content: [{ type: "text", text: `${name} is unavailable on V2: ${capability.reason}` }], structuredContent: { error: { code: "UNSUPPORTED_CAPABILITY", capability: name, backend: "v2", message: capability.reason } } });
+        }
         const result = await handler(args, { signal: ctx.mcpReq.signal, _meta: ctx.mcpReq._meta, mcpReq: ctx.mcpReq });
         return result.resultType === "input_required" ? result as InputRequiredResult : withStructuredText(result as CallToolResult);
       }));
