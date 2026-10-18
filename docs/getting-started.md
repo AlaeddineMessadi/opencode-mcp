@@ -1,5 +1,7 @@
 # Getting Started
 
+> This candidate adds **experimental V2 support**. Stable npm 3.0.0 supports V1; build this branch to evaluate V2. V2 slash-command execution is disabled. See the [migration guide](../MIGRATION.md) for connection settings and limitations.
+
 ## Prerequisites
 
 - Node.js **22 or newer** for version 3.0.0 and later.
@@ -16,7 +18,7 @@ From your project directory:
 opencode serve --hostname 127.0.0.1 --port 4096
 ```
 
-Alternatively, share your TUI's server by starting it with `opencode --port 4096`. Automatic startup is disabled by default. Opt in with `OPENCODE_AUTO_SERVE=true` only when you want a separate child server.
+Alternatively, share your TUI's server by starting it with `opencode --port 4096`. Automatic startup is disabled by default. Opt in with `OPENCODE_AUTO_SERVE=true` only when you want a separate V1 child server. A recognized V2 executable is rejected before launch; start V2 separately and configure its URL and credentials.
 
 ## 2. Add MCP to Your Client
 

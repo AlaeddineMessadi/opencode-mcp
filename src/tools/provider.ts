@@ -1,3 +1,4 @@
+import { operate } from "../backends/adapter.js";
 import { z } from "zod";
 import { McpServer } from "../mcp-server.js";
 import { OpenCodeClient } from "../client.js";
@@ -15,7 +16,7 @@ export function registerProviderTools(
     },
     async ({ directory }) => {
       try {
-        const raw = await client.get("/provider", undefined, directory);
+        const raw = await operate(client, "providers.list", { directory: directory });
         const providers = (
           raw && typeof raw === "object" && "all" in (raw as Record<string, unknown>)
             ? (raw as Record<string, unknown>).all
@@ -88,7 +89,7 @@ export function registerProviderTools(
     },
     async ({ providerId, limit, directory }) => {
       try {
-        const raw = await client.get("/provider", undefined, directory);
+        const raw = await operate(client, "providers.list", { directory: directory });
         const providers = (
           raw && typeof raw === "object" && "all" in (raw as Record<string, unknown>)
             ? (raw as Record<string, unknown>).all
@@ -157,7 +158,7 @@ export function registerProviderTools(
     },
     async ({ directory }) => {
       try {
-        const raw = await client.get("/provider/auth", undefined, directory);
+        const raw = await operate(client, "providers.authMethods", { directory: directory });
         if (raw && typeof raw === "object" && !Array.isArray(raw)) {
           const entries = Object.entries(raw as Record<string, unknown>);
           if (entries.length === 0) {
@@ -190,12 +191,14 @@ export function registerProviderTools(
     {
       providerId: z.string().describe("Provider ID to authorize"),
       method: z.number().int().nonnegative().default(0).describe("Auth method index from opencode_provider_auth_methods (default 0)"),
+      integrationId: z.string().optional(), methodId: z.string().optional(),
+      values: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])).optional(),
       inputs: z.record(z.string(), z.string()).optional().describe("Additional inputs requested by the selected authentication method"),
     },
-    async ({ providerId, method, inputs }) => {
+    async ({ providerId, method, inputs, integrationId, methodId, values }) => {
       try {
         return toolJson(
-          await client.post(`/provider/${encodeURIComponent(providerId)}/oauth/authorize`, { method: method ?? 0, ...(inputs ? { inputs } : {}) }),
+          await operate(client, "providers.authorize", { providerId: providerId, body: { method: method ?? 0, ...(inputs ? { inputs } : {}), ...(integrationId ? { integrationId } : {}), ...(methodId ? { methodId } : {}), ...(values ? { values } : {}) } }),
         );
       } catch (e) {
         return toolError(e);
@@ -209,16 +212,15 @@ export function registerProviderTools(
     {
       providerId: z.string().describe("Provider ID"),
       callbackData: z.object({
-        method: z.number().int().nonnegative().describe("The method index used for authorization"),
+        attemptId: z.string().optional().describe("V2 exact attemptId from authorization"),
+        integrationId: z.string().optional(),
+        method: z.number().int().nonnegative().optional().describe("V1 method index used for authorization; V2 uses the exact attemptId"),
         code: z.string().optional().describe("Authorization code for methods that request one"),
       }).describe("OAuth callback data"),
     },
     async ({ providerId, callbackData }) => {
       try {
-        await client.post(
-          `/provider/${encodeURIComponent(providerId)}/oauth/callback`,
-          callbackData,
-        );
+        await operate(client, "providers.callback", { providerId: providerId, body: callbackData });
         return toolResult("OAuth callback processed.");
       } catch (e) {
         return toolError(e);
@@ -236,7 +238,7 @@ export function registerProviderTools(
     },
     async ({ providerId, type, key }) => {
       try {
-        await client.put(`/auth/${providerId}`, { type, key });
+        await operate(client, "providers.setAuth", { providerId: providerId, body: { type, key } });
         return toolResult(`Auth credentials set for ${providerId}.`);
       } catch (e) {
         return toolError(e);

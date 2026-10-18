@@ -1,3 +1,4 @@
+import { operate } from "../backends/adapter.js";
 import { z } from "zod";
 import { McpServer } from "../mcp-server.js";
 import { OpenCodeClient } from "../client.js";
@@ -14,7 +15,7 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ directory }) => {
       try {
-        const raw = await client.get("/path", undefined, directory);
+        const raw = await operate(client, "files.paths", { directory: directory });
         const p = raw as Record<string, unknown>;
         if (p && typeof p === "object" && !Array.isArray(p)) {
           const labels: Record<string, string> = {
@@ -49,7 +50,7 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ directory }) => {
       try {
-        const raw = await client.get("/vcs", undefined, directory);
+        const raw = await operate(client, "files.vcs", { directory: directory });
         const v = raw as Record<string, unknown>;
         if (!v || typeof v !== "object") {
           return toolResult("No VCS info available.");
@@ -86,7 +87,7 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
     destructive,
     async ({ directory }) => {
       try {
-        await client.post("/instance/dispose", undefined, { directory });
+        await operate(client, "lifecycle.dispose", { ...({ directory }) });
         return toolResult("Instance disposed.");
       } catch (e) {
         return toolError(e);
@@ -104,7 +105,7 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ directory }) => {
       try {
-        const agents = (await client.get("/agent", undefined, directory)) as Array<Record<string, unknown>>;
+        const agents = (await operate(client, "configuration.agents", { directory: directory })) as Array<Record<string, unknown>>;
         if (!agents || agents.length === 0) {
           return toolResult("No agents found.");
         }
@@ -131,7 +132,7 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ directory }) => {
       try {
-        const raw = await client.get("/command", undefined, directory);
+        const raw = await operate(client, "configuration.commands", { directory: directory });
         const commands = Array.isArray(raw) ? raw as Array<Record<string, unknown>> : [];
         if (commands.length === 0) {
           return toolResult("No commands available.");
@@ -160,7 +161,7 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ directory }) => {
       try {
-        const raw = await client.get("/lsp", undefined, directory);
+        const raw = await operate(client, "lifecycle.lsp", { directory: directory });
         const servers = Array.isArray(raw) ? raw as Array<Record<string, unknown>> : [];
         if (servers.length === 0) {
           return toolResult("No LSP servers running.");
@@ -188,7 +189,7 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ directory }) => {
       try {
-        const raw = await client.get("/formatter", undefined, directory);
+        const raw = await operate(client, "lifecycle.formatter", { directory: directory });
         const formatters = Array.isArray(raw) ? raw as Array<Record<string, unknown>> : [];
         if (formatters.length === 0) {
           return toolResult("No formatters configured.");
@@ -227,7 +228,7 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ directory }) => {
       try {
-        const raw = await client.get("/mcp", undefined, directory);
+        const raw = await operate(client, "configuration.mcp", { directory: directory });
         // MCP status may be an object keyed by server name or an array
         if (raw && typeof raw === "object" && !Array.isArray(raw)) {
           const entries = Object.entries(raw as Record<string, unknown>);
@@ -272,7 +273,7 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ name, config, directory }) => {
       try {
-        return toolJson(await client.post("/mcp", { name, config }, { directory }));
+        return toolJson(await operate(client, "configuration.mcpAdd", { body: { name, config }, ...({ directory }) }));
       } catch (e) {
         return toolError(e);
       }
@@ -289,7 +290,7 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ directory }) => {
       try {
-        const raw = await client.get("/experimental/tool/ids", undefined, directory);
+        const raw = await operate(client, "lifecycle.toolIds", { directory: directory });
         const ids = Array.isArray(raw) ? raw as string[] : [];
         if (ids.length === 0) {
           return toolResult("No tools available.");
@@ -311,7 +312,7 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
     },
     async ({ provider, model, directory }) => {
       try {
-        const raw = await client.get("/experimental/tool", { provider, model }, directory);
+        const raw = await operate(client, "lifecycle.tools", { query: { provider, model }, directory: directory });
         const tools = Array.isArray(raw) ? raw as Array<Record<string, unknown>> : [];
         if (tools.length === 0) {
           return toolResult("No tools available for this provider/model.");
@@ -353,7 +354,7 @@ export function registerMiscTools(server: McpServer, client: OpenCodeClient) {
       try {
         const body: Record<string, unknown> = { service, level, message };
         if (extra) body.extra = extra;
-        await client.post("/log", body, { directory });
+        await operate(client, "lifecycle.log", { body: body, ...({ directory }) });
         return toolResult(`Log entry written [${level}] ${service}: ${message}`);
       } catch (e) {
         return toolError(e);

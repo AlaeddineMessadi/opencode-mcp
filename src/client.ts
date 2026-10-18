@@ -1,3 +1,4 @@
+import type { BackendIdentity, BackendKind } from "./backends/contracts.js";
 import { createOpencodeClient, OpencodeClient as NativeClient } from "@opencode-ai/sdk";
 import { normalizeDirectory } from "./helpers.js";
 import { ensureServer, isServerRunning } from "./server-manager.js";
@@ -9,6 +10,9 @@ export interface OpenCodeClientOptions {
   username?: string;
   password?: string;
   autoServe?: boolean;
+  backend?: BackendKind;
+  identity?: BackendIdentity;
+  unavailableReason?: string;
 }
 
 export class OpenCodeError extends Error {
@@ -74,6 +78,9 @@ function buildBasicAuthHeader(username?: string, password?: string): string | un
 
 export class OpenCodeClient {
   public api: NativeClient;
+  readonly backendIdentity: BackendIdentity;
+  private readonly unavailableReason?: string;
+  readonly connectionHeaders: Record<string, string>;
   private baseUrl: string;
   private autoServe: boolean;
   private reconnectAttempts = 0;
@@ -81,6 +88,10 @@ export class OpenCodeClient {
   private password?: string;
 
   constructor(options: OpenCodeClientOptions) {
+    this.unavailableReason = options.unavailableReason;
+    this.backendIdentity = options.identity ?? { kind: options.backend ?? "v1", connectionSource: "explicit", ...(options.unavailableReason ? { resolved: false as const } : {}), processOwnership: "external", survivesDisconnect: true };
+    const authorization = buildBasicAuthHeader(options.username, options.password);
+    this.connectionHeaders = authorization ? { Authorization: authorization } : {};
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
     this.autoServe = options.autoServe ?? false;
     this.username = options.username;
@@ -103,6 +114,10 @@ export class OpenCodeClient {
     return createOpencodeClient({ baseUrl: this.baseUrl, headers });
   }
 
+  assertBackendAvailable(): void { if (this.unavailableReason) throw Object.assign(new Error(this.unavailableReason), { code: "BACKEND_UNAVAILABLE" }); }
+
+  getBackendIdentity(): BackendIdentity { return this.backendIdentity; }
+
   getBaseUrl(): string {
     return this.baseUrl;
   }
@@ -112,6 +127,7 @@ export class OpenCodeClient {
     path: string,
     opts: RequestOptions & { query?: Record<string, string>; body?: unknown; directory?: string } = {},
   ): Promise<T> {
+    this.assertBackendAvailable();
     // Validate before submission. A malformed local argument cannot be an
     // ambiguous remote mutation and must never trigger retries.
     const normalized = normalizeDirectory(opts.directory);
@@ -212,6 +228,7 @@ export class OpenCodeClient {
   }
 
   async *subscribeSSE(path: string, opts: RequestOptions & { directory?: string } = {}): AsyncGenerator<{ event: string; data: string }, void, undefined> {
+    this.assertBackendAvailable();
     const url = new URL(path, this.baseUrl).toString();
     const headers: Record<string, string> = { Accept: "text/event-stream", "Cache-Control": "no-cache" };
     const normalized = normalizeDirectory(opts.directory);

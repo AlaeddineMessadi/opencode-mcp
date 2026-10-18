@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0-rc.2] - 2026-10-18
+
+Unpublished prerelease candidate with **experimental V2 support**. V1 behavior remains supported. The prerelease scope is 64 V2 tool mappings, 22 V1-only exceptions, and one disabled V2 operation; it does not complete the original 65-tool milestone.
+
+- Keep `opencode_command_execute` disabled on V2 with `UNSUPPORTED_CAPABILITY` before submission until [upstream #49690](https://github.com/anomalyco/opencode/issues/49690) provides reliable command identity and completion correlation. V1 commands remain available.
+- Integrate the applicable [#31](https://github.com/AlaeddineMessadi/opencode-mcp/issues/31) startup diagnostic fix: check the local executable before opt-in V1 startup, reject recognized V2 versions promptly, and preserve actionable connection instructions. Invalid V1 health responses cannot trigger replacement startup. Authentication failures and owned-child cleanup remain fail-closed.
+- Include the October 18 client/CLI 2.0.32 compatibility, prefixed event-stream, macOS process-cleanup, and dependency updates described below.
+- Live model workflows, recovery/cancellation, forms/permissions, OAuth completion, and interactive-client behavior remain unverified. Contract tests are not live validation. See [release checks](docs/releasing.md).
+
+## [3.1.0-rc.1] - 2026-09-17
+
+Evaluation candidate for the V1/V2 compatibility foundation. The original 65-operation V2 completion gate remains blocked by upstream command correlation; this is not a completed milestone declaration.
+
+### October 18 follow-up
+
+- Pin the V2 client and isolated CLI integration target to 2.0.32. Adapt project-list arguments and remove the URL-prefix workaround now handled by the client, including prefixed event-stream regression coverage.
+- Make owned test-process cleanup tolerate groups exiting before a signal and transient Darwin EPERM while zombies are reaped, while preserving persistent permission failures. Classify cleanup errors without exposing raw server output.
+- Refresh vulnerable lockfile dependencies within the existing declared ranges. No new dependency is introduced.
+- Slash-command correlation remains blocked in 2.0.32. Parent session creation remains conservatively rejected pending validation of the newly added upstream option.
+
+### Added
+
+- Typed backend operations, normalized results, and one compatibility manifest for all 87 tools, 10 resources, 4 templates, and 6 prompts. V2 currently maps 64 tools, retains 22 explicit V1-only exceptions, and rejects `command_execute` before mutation because V2 2.0.6 supplies no execution receipt or caller-assigned command ID.
+- Automatic or forced backend detection, read-only V2 service discovery, ownership reporting, and standalone `doctor`/`--check`, help, and version commands.
+- V2 queue submission identity, durable log observation with saved correlation state, versioned job storage, and shared ordinary-tool/native-Task workflows.
+- V2 model/agent preservation, scoped permissions, typed form values, exact OAuth attempt IDs, explicit diff ranges, staged reverts, pagination metadata, and project-filtered events.
+- macOS CI, production archive installation tests, and isolated V1/V2 compatibility checks.
+
+### Compatibility and validation
+
+- V1 behavior and stored record format remain supported. Authentication errors and ambiguous mutations never trigger fallback submission or replay.
+- The September candidate exercised `opencode-ai@1.18.31` and `@opencode/cli@2.0.6` on Node.js 22.23.2, macOS arm64. The current V2 client dependency and integration target are 2.0.32; see the [verification guide](docs/releasing.md) for current evidence.
+- Live provider inference, live job execution, OAuth completion, and interactive permission/form flows were not verified. Those paths have fixture-backed contract and recovery tests; client UI compatibility is not claimed from those fixtures.
+- See [migration guidance](MIGRATION.md) and the generated [compatibility matrix](docs/compatibility.md) for guarded options and the upstream blocker. No package has been published by this change.
+
 ## [3.0.0] - 2026-09-16
 
 ### Breaking changes

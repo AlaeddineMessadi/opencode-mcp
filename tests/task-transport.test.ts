@@ -16,7 +16,7 @@ const snapshot = (status: JobSnapshot["status"]): JobSnapshot => ({
 async function setup() {
   const sent: any[] = [];
   const inner = { start: vi.fn(async () => {}), close: vi.fn(async () => {}), send: vi.fn(async (message: unknown) => { sent.push(message); }) } as unknown as Transport;
-  const jobs = { start: vi.fn(async () => snapshot("accepted")), get: vi.fn(async () => snapshot("running")),
+  const jobs = { selectModel: (providerID?:string,modelID?:string) => providerID && modelID ? {providerID,modelID} : undefined, start: vi.fn(async () => snapshot("accepted")), get: vi.fn(async () => snapshot("running")),
     update: vi.fn(async () => snapshot("running")), cancel: vi.fn(async () => snapshot("cancelled")) };
   const transport = new TaskTransport(inner, jobs as unknown as JobService);
   const forwarded = vi.fn();

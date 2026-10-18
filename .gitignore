@@ -14,3 +14,6 @@ pr_comments.txt
 
 # Local test coverage reports
 coverage/
+
+# Locally prepared release candidate archives
+artifacts/

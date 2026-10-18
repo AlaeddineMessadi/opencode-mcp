@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         node: [22, 24]
     runs-on: ${{ matrix.os }}
     steps:
@@ -24,6 +24,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: Coverage gate
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        run: npm run test:coverage
+      - name: Dependency vulnerability gate
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        run: npm audit
       - run: npm run docs:check
-      - run: npm pack --dry-run
+      - run: npm run test:package
+      - run: npm run test:compat
       - run: git diff --check

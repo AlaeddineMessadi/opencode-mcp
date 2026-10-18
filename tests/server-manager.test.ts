@@ -16,9 +16,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // Mock the SDK before importing the server-manager module so the import chain
 // picks up the mock. `vi.hoisted` keeps the mock reference accessible from
 // both the (hoisted) `vi.mock` factory and the assertions below.
-const { createOpencodeServerMock } = vi.hoisted(() => ({
+const { createOpencodeServerMock, execFileMock } = vi.hoisted(() => ({
   createOpencodeServerMock: vi.fn(),
+  execFileMock: vi.fn(),
 }));
+vi.mock("node:child_process", () => ({ execFile: execFileMock }));
 vi.mock("@opencode-ai/sdk", () => ({
   createOpencodeServer: createOpencodeServerMock,
   OpencodeClient: vi.fn(),
@@ -31,6 +33,8 @@ import {
   ensureServer,
   registerShutdownHandlers,
   resetShutdownRegisteredForTests,
+  ServerAuthenticationError,
+  IncompatibleServerError,
 } from "../src/server-manager.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -71,6 +75,7 @@ beforeEach(() => {
   globalThis.fetch = fetchMock as unknown as typeof fetch;
   consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
   createOpencodeServerMock.mockReset();
+  execFileMock.mockReset().mockImplementation((_file, _args, _options, callback) => callback(null, "1.18.31\n", ""));
   resetShutdownRegisteredForTests();
   // Capture lifecycle registration without installing handlers on the test runner.
   vi.spyOn(process, "on").mockReturnValue(process);
@@ -183,7 +188,7 @@ describe("startServer", () => {
       expect.objectContaining({
         hostname: "127.0.0.1",
         port: 4096,
-        timeout: 5000,
+        timeout: expect.any(Number),
       }),
     );
     expect(result.url).toBe("http://127.0.0.1:4096");
@@ -231,17 +236,35 @@ describe("startServer", () => {
     );
   });
 
-  it("returns version=undefined when post-start health check fails", async () => {
+  it("closes only its owned child when post-start health check fails", async () => {
+    const close = vi.fn();
     createOpencodeServerMock.mockResolvedValueOnce({
       url: "http://127.0.0.1:4096",
-      close: vi.fn(),
+      close,
     });
     mockFetchDown(); // health check after start fails
 
-    const result = await startServer("http://127.0.0.1:4096", 5000);
+    await expect(startServer("http://127.0.0.1:4096", 5000)).rejects.toThrow("healthy V1 contract");
+    expect(close).toHaveBeenCalledOnce();
+    stopServer();
+    expect(close).toHaveBeenCalledOnce();
+  });
 
-    expect(result.url).toBe("http://127.0.0.1:4096");
-    expect(result.version).toBeUndefined();
+  it("uses configured authentication for the owned child without unauthenticated fallback", async () => {
+    createOpencodeServerMock.mockResolvedValueOnce({ url: "http://127.0.0.1:4096", close: vi.fn() });
+    mockFetchHealthy();
+    await startServer("http://127.0.0.1:4096", 5000, "fixture-user", "fixture-password");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(`Basic ${Buffer.from("fixture-user:fixture-password").toString("base64")}`);
+  });
+
+  it.each([401, 403])("closes the owned child after post-start HTTP %i", async status => {
+    const close = vi.fn();
+    createOpencodeServerMock.mockResolvedValueOnce({ url: "http://127.0.0.1:4096", close });
+    fetchMock.mockResolvedValueOnce({ ok: false, status });
+    await expect(startServer("http://127.0.0.1:4096", 5000, "fixture", "fixture")).rejects.toBeInstanceOf(ServerAuthenticationError);
+    expect(close).toHaveBeenCalledOnce(); expect(fetchMock).toHaveBeenCalledTimes(1);
+    stopServer(); expect(close).toHaveBeenCalledOnce();
   });
 });
 
@@ -325,6 +348,12 @@ describe("shutdown behavior", () => {
 // ─── ensureServer ────────────────────────────────────────────────────────
 
 describe("ensureServer", () => {
+  it.each([401, 403])("never starts after authentication HTTP %i", async status => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status });
+    await expect(ensureServer({ baseUrl: "http://127.0.0.1:4096", autoServe: true })).rejects.toBeInstanceOf(ServerAuthenticationError);
+    expect(createOpencodeServerMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it("returns immediately when server is already running", async () => {
     mockFetchHealthy("1.14.46");
 
@@ -480,5 +509,45 @@ describe("Issue #18: explicit server ownership", () => {
     mockFetchDown();
     await expect(ensureServer({ baseUrl, autoServe: true })).rejects.toThrow("local loopback HTTP URL");
     expect(createOpencodeServerMock).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("issue #31 startup compatibility", () => {
+  it.each(["2.0.28", "2.0.32", "v2.1.0-rc.1"])("rejects %s before SDK startup", async version => {
+    execFileMock.mockImplementation((_file, _args, _options, callback) => callback(null, version, ""));
+    await expect(startServer("http://127.0.0.1:4096")).rejects.toThrow("OPENCODE_BACKEND=v2");
+    expect(createOpencodeServerMock).not.toHaveBeenCalled();
+  });
+  it("preserves SDK startup for launchers without version support", async () => {
+    execFileMock.mockImplementation((_file, _args, _options, callback) => callback(new Error("unsupported"), "", ""));
+    createOpencodeServerMock.mockResolvedValueOnce({ url: "http://127.0.0.1:4096", close: vi.fn() });
+    mockFetchHealthy();
+    await startServer("http://127.0.0.1:4096");
+    expect(createOpencodeServerMock).toHaveBeenCalledOnce();
+  });
+  it("charges version probing against the total startup budget", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1000);
+    execFileMock.mockImplementation((_file, _args, options, callback) => {
+      expect(options.timeout).toBe(40);
+      vi.mocked(Date.now).mockReturnValue(1041);
+      callback(new Error("timeout"), "", "");
+    });
+    await expect(startServer("http://127.0.0.1:4096", 40)).rejects.toThrow("time budget");
+    expect(createOpencodeServerMock).not.toHaveBeenCalled();
+  });
+  it.each([true, false])("does not replace an HTML endpoint with autoServe=%s", async autoServe => {
+    fetchMock.mockResolvedValueOnce(new Response("<html>OpenCode</html>"));
+    await expect(ensureServer({ baseUrl: "http://127.0.0.1:4096", autoServe })).rejects.toBeInstanceOf(IncompatibleServerError);
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(createOpencodeServerMock).not.toHaveBeenCalled();
+  });
+  it("closes an owned child exactly once after malformed health JSON", async () => {
+    const close = vi.fn();
+    createOpencodeServerMock.mockResolvedValueOnce({ url: "http://127.0.0.1:4096", close });
+    fetchMock.mockResolvedValueOnce(new Response("<html>OpenCode</html>"));
+    await expect(startServer("http://127.0.0.1:4096")).rejects.toBeInstanceOf(IncompatibleServerError);
+    stopServer();
+    expect(close).toHaveBeenCalledOnce();
   });
 });

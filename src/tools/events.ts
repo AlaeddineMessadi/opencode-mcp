@@ -1,3 +1,4 @@
+import { events as backendEvents } from "../backends/adapter.js";
 /**
  * Event streaming tools — subscribe to real-time events from OpenCode.
  */
@@ -37,7 +38,7 @@ export function registerEventTools(
         const context = createRequestContext({ signal: extra?.signal, timeout: durationMs ?? 3000 });
         let streamError: unknown;
         try {
-          for await (const evt of client.subscribeSSE(scope === "global" ? "/global/event" : "/event", {
+          for await (const evt of backendEvents(client, scope ?? "project", {
             signal: context.signal, deadline: context.deadline, directory,
           })) {
             events.push(evt);
@@ -46,9 +47,9 @@ export function registerEventTools(
         } catch (error) {
           // Only the polling window expiring normally is a successful empty
           // observation. Caller cancellation and connection errors stay visible.
-          if (!(context.signal.aborted && context.signal.reason?.name === "TimeoutError" && !extra?.signal?.aborted)) {
-            streamError = error;
-          }
+          const timeout = error instanceof Error && error.name === "TimeoutError";
+          const localDeadline = context.signal.aborted && context.signal.reason?.name === "TimeoutError" || timeout && Date.now() >= context.deadline;
+          if (!localDeadline || extra?.signal?.aborted) streamError = error;
         } finally {
           context.dispose();
         }

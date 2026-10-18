@@ -1,3 +1,4 @@
+import { operate } from "../backends/adapter.js";
 import { z } from "zod";
 import { McpServer } from "../mcp-server.js";
 import { OpenCodeClient } from "../client.js";
@@ -16,7 +17,7 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
     readOnly,
     async ({ pattern, directory }) => {
       try {
-        const raw = await client.get("/find", { pattern }, directory);
+        const raw = await operate(client, "files.findText", { query: { pattern }, directory: directory });
         const results = Array.isArray(raw) ? raw as Array<Record<string, unknown>> : [];
         if (results.length === 0) {
           return toolResult(`No matches found for pattern: ${pattern}`, false, { data: [] });
@@ -69,7 +70,7 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
         if (type) q.type = type;
         if (searchDirectory) q.directory = searchDirectory;
         if (limit !== undefined) q.limit = String(limit);
-        const files = (await client.get("/find/file", q, directory)) as string[];
+        const files = (await operate(client, "files.find", { query: q, directory: directory })) as string[];
         if (!files || files.length === 0) {
           return toolResult(`No files found matching: ${query}`, false, { data: [] });
         }
@@ -90,7 +91,7 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
     readOnly,
     async ({ query, directory }) => {
       try {
-        const raw = await client.get("/find/symbol", { query }, directory);
+        const raw = await operate(client, "files.findSymbol", { query: { query }, directory: directory });
         const symbols = Array.isArray(raw) ? raw as Array<Record<string, unknown>> : [];
         if (symbols.length === 0) {
           return toolResult(`No symbols found matching: ${query}`, false, { data: [] });
@@ -128,7 +129,7 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
     async ({ path, directory }) => {
       try {
         const q: Record<string, string> = { path: path || "." };
-        const nodes = (await client.get("/file", q, directory)) as Array<Record<string, unknown>>;
+        const nodes = (await operate(client, "files.list", { query: q, directory: directory })) as Array<Record<string, unknown>>;
         if (!nodes || nodes.length === 0) {
           return toolResult("Empty directory.");
         }
@@ -153,7 +154,7 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
     readOnly,
     async ({ path, directory }) => {
       try {
-        const result = (await client.get("/file/content", { path }, directory)) as Record<string, unknown>;
+        const result = (await operate(client, "files.read", { query: { path }, directory: directory })) as Record<string, unknown>;
         if (typeof result.content === "string") {
           return toolResult(`File: ${path}\n\n${result.content}`, false, { data: result });
         }
@@ -173,7 +174,7 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
     readOnly,
     async ({ directory }) => {
       try {
-        const files = (await client.get("/file/status", undefined, directory)) as Array<Record<string, unknown>>;
+        const files = (await operate(client, "files.status", { directory: directory })) as Array<Record<string, unknown>>;
         if (!files || files.length === 0) {
           return toolResult("No tracked file changes.");
         }
