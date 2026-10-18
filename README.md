@@ -87,6 +87,8 @@ All settings are optional; an OpenCode server must already be running by default
 |---|---|
 | `OPENCODE_BASE_URL` | Server endpoint; defaults to `http://127.0.0.1:4096` |
 | `OPENCODE_SERVER_USERNAME`, `OPENCODE_SERVER_PASSWORD` | Optional server HTTP authentication |
+| `OPENCODE_SERVER_TOKEN` | Optional bearer token, e.g. an OpenChamber client token |
+| `OPENCODE_OPENCHAMBER_PASSWORD`, `OPENCODE_OPENCHAMBER_URL` | Sign in to an [OpenChamber](https://github.com/openchamber/openchamber)-fronted server |
 | `OPENCODE_AUTO_SERVE` | Set to `true` to opt in to launching a local server |
 | `OPENCODE_DEFAULT_PROVIDER`, `OPENCODE_DEFAULT_MODEL` | Default prompt provider/model pair |
 | `OPENCODE_TOOL_PROFILE` | `full` (default) or a smaller `essential` tool set |

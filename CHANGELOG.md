@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Bearer-token authentication with `OPENCODE_SERVER_TOKEN`.
+- OpenChamber sign-in with `OPENCODE_OPENCHAMBER_PASSWORD` (and optional `OPENCODE_OPENCHAMBER_URL`): exchanges the UI password for a client token, keeps it in memory, and renews it once on 401. Applies to API requests, event streams and the health probe.
+
 ## [3.0.0] - 2026-09-16
 
 ### Breaking changes
