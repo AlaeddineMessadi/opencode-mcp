@@ -35,12 +35,12 @@ async function assertPortClosed(port) {
     if (closed) return;
     await new Promise(resolve => setTimeout(resolve, 50));
   }
-  throw new Error("Isolated backend port remained open after process-tree cleanup");
+  throw Object.assign(new Error("Isolated backend port remained open after process-tree cleanup"), { code: "BACKEND_PORT_OPEN" });
 }
 
 export const targets = Object.freeze({
   v1: { package: "opencode-ai", version: "1.18.31", health: "/global/health" },
-  v2: { package: "@opencode/cli", version: "2.0.6", health: "/api/info" },
+  v2: { package: "@opencode/cli", version: "2.0.32", health: "/api/info" },
 });
 
 export function compatibilityOptions(argv) {
@@ -89,7 +89,7 @@ function withFailurePhase(error, phase) {
 }
 export function safeFailureDetails(error, processInfo) {
   const names = new Set(["Error", "TypeError", "AssertionError", "TimeoutError", "AbortError", "SystemError"]);
-  const codes = new Set(["ERR_ASSERTION", "ECONNREFUSED", "ECONNRESET", "EPIPE", "ENOTFOUND", "ETIMEDOUT", "ESRCH", "UND_ERR_SOCKET", "UND_ERR_CONNECT_TIMEOUT", "ERR_STREAM_PREMATURE_CLOSE"]);
+  const codes = new Set(["ERR_ASSERTION", "ECONNREFUSED", "ECONNRESET", "EPIPE", "ENOTFOUND", "ETIMEDOUT", "ESRCH", "EPERM", "EINVAL", "BACKEND_PORT_OPEN", "UND_ERR_SOCKET", "UND_ERR_CONNECT_TIMEOUT", "ERR_STREAM_PREMATURE_CLOSE"]);
   const signals = new Set(["SIGTERM", "SIGKILL", "SIGINT", "SIGABRT", "SIGSEGV"]);
   const result = {};
   if (names.has(error?.name)) result.name = error.name;
@@ -311,7 +311,7 @@ async function checkBackend(kind, root, installed, options) {
     const catalog = await connection.request("tools/list");
     assert.ok(catalog.tools.some((tool) => tool.name === "opencode_session_create"));
     await call("opencode_health");
-    for (const name of ["opencode_project_current", "opencode_path_get", "opencode_agent_list", "opencode_config_get"]) {
+    for (const name of ["opencode_project_list", "opencode_project_current", "opencode_path_get", "opencode_agent_list", "opencode_config_get"]) {
       await call(name, { directory: project });
     }
     const file = await call("opencode_file_read", { path: "README.md", directory: project });

@@ -15,7 +15,7 @@ export function assertSessionSelection(session: SessionInfo, body: PromptOptions
   if (body.agent !== undefined && body.agent !== session.agent) throw new BackendCapabilityError("session.agent", "Existing V2 sessions preserve their agent.");
 }
 
-/** Upstream 2.0.6 prompt/compact implicitly commit staged reverts. Never trigger that hidden write. */
+/** Upstream 2.0.32 prompt/compact implicitly commit staged reverts. Never trigger that hidden write. */
 export function assertNoStagedRevert(session: SessionInfo): void {
-  if (session.revert) throw new BackendCapabilityError("session.staged_revert", "V2 2.0.6 would automatically commit this staged revert when prompting or compacting. Clear it with session_unrevert, or explicitly commit it outside this bridge, before continuing.");
+  if (session.revert) throw new BackendCapabilityError("session.staged_revert", "V2 2.0.32 would automatically commit this staged revert when prompting or compacting. Clear it with session_unrevert, or explicitly commit it outside this bridge, before continuing.");
 }

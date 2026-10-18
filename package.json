@@ -61,7 +61,7 @@
     "@modelcontextprotocol/core": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "@opencode-ai/sdk": "^1.18.31",
-    "@opencode/client": "2.0.6",
+    "@opencode/client": "2.0.32",
     "zod": "^4.6.5"
   },
   "devDependencies": {

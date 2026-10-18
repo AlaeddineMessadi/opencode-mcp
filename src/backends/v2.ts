@@ -19,11 +19,8 @@ export class V2Adapter implements BackendAdapter {
   readonly api: ReturnType<typeof OpenCode.make>;
   private readonly mutation = new AsyncLocalStorage<{ submitted: boolean; method?: string; path?: string; recovery?: {sessionId:string;messageId?:string} }>();
   constructor(client: OpenCodeClient) {
-    const base = new URL(client.getBaseUrl());
     this.api = OpenCode.make({ baseUrl: client.getBaseUrl(), headers: client.connectionHeaders, fetch: async (input, init) => {
       const url = new URL(input instanceof Request ? input.url : input.toString());
-      const prefix = base.pathname.replace(/\/$/, "");
-      if (prefix && prefix !== "/" && url.origin === base.origin) url.pathname = prefix + url.pathname;
       const method = init?.method ?? (input instanceof Request ? input.method : "GET");
       const write = method !== "GET" && method !== "HEAD";
       throwIfAborted(init?.signal ?? undefined);
@@ -58,7 +55,7 @@ export class V2Adapter implements BackendAdapter {
     switch (operation) {
       case "lifecycle.health": { const info = await api.server.info(options); if (!info || typeof info.version !== "string" || typeof info.pid !== "number" || !Array.isArray(info.urls)) throw new Error("Malformed V2 server information"); return { healthy: true, version: info.version, backend: "v2" }; }
       case "configuration.get": return { backend: "v2", sources: await api.config.get({ location }, options), effectiveConfiguration: false };
-      case "projects.list": return (await api.project.list(options)).map(project => ({ ...project, worktree: project.canonical }));
+      case "projects.list": return (await api.project.list({}, options)).map(project => ({ ...project, worktree: project.canonical }));
       case "projects.current": { const value = await api.location.get({ location }, options); return { ...value.project, worktree: value.project.directory, directory: value.directory }; }
       case "files.paths": { const value = await api.location.get({ location }, options); return { directory: value.directory, worktree: value.project.directory, backend: "v2" }; }
       case "files.vcs": return (await api.vcs.get({ location }, options)).data;
@@ -134,7 +131,7 @@ export class V2Adapter implements BackendAdapter {
       case "forms.list": return (await api.form.list({ location }, options)).data.map(form => ({ ...form, backend: "v2" }));
       case "sessions.create": {
         assertPromptOptions(body);
-        if (body.parentID !== undefined) throw new BackendCapabilityError("session_create.parentID", "V2 session creation has no parentID equivalent; use an explicit fork instead.");
+        if (body.parentID !== undefined) throw new BackendCapabilityError("session_create.parentID", "This bridge does not support parentID creation; use an explicit fork instead.");
         const model = body.model ?? applyModelDefaults();
         if (body.variant && !model) throw new BackendCapabilityError("session.variant", "Select a provider and model before requesting a V2 model variant.");
         return normalizeSession(await api.session.create({ title: body.title, agent: body.agent,
@@ -186,7 +183,7 @@ export class V2Adapter implements BackendAdapter {
         if (operation === "messages.enqueue") return receipt;
         return this.waitPrompt(sessionID(), id, options);
       }
-      case "messages.command": throw new BackendCapabilityError("command_execute", "V2 2.0.6 command submission returns no receipt and accepts no caller identifier. Exact execution completion cannot be correlated safely; no command was submitted.");
+      case "messages.command": throw new BackendCapabilityError("command_execute", "V2 2.0.32 command submission returns no receipt and accepts no caller identifier. Exact execution completion cannot be correlated safely; no command was submitted.");
       case "messages.shell": {
         const session = await this.scopedSession(args, options); assertSessionSelection(session, body);
         const id = createMessageId();

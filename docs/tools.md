@@ -3679,7 +3679,7 @@ Execute a slash command in a session (e.g. /init, /undo, /redo)
 
 **Profiles:** full.
 
-**Backends:** V1 supported; V2 blocked. V2 2.0.6 command accepts no caller identifier and returns void; exact execution completion cannot be correlated safely.
+**Backends:** V1 supported; V2 blocked. V2 2.0.32 command accepts no caller identifier and returns void; exact execution completion cannot be correlated safely.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`.
 

@@ -62,7 +62,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
       return finish();
     }
     const identity = connection.identity;
-    const integrationTargetVersion = identity.kind === "v1" ? "1.18.31" : "2.0.6";
+    const integrationTargetVersion = identity.kind === "v1" ? "1.18.31" : "2.0.32";
     const matchesIntegrationTarget = identity.version === integrationTargetVersion;
     const safeVersion = identity.version && /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(identity.version) ? identity.version : undefined;
     report.backend = { ...identity, version: safeVersion, integrationTargetVersion, matchesIntegrationTarget,

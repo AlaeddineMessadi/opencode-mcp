@@ -86,11 +86,22 @@ export async function stopProcess(processInfo) {
       const killer = childProcess("taskkill", ["/pid", String(child.pid), "/t", "/f"], {});
       await killer.exited;
     } else {
-      const alive = () => { try { process.kill(-child.pid, 0); return true; } catch (error) { if (error.code === "ESRCH") return false; throw error; } };
-      if (alive()) process.kill(-child.pid, "SIGTERM");
+      const signalGroup = async (signal) => {
+        const deadline = Date.now() + 1000;
+        for (;;) {
+          try { process.kill(-child.pid, signal); return true; }
+          catch (error) {
+            if (error.code === "ESRCH") return false;
+            // Darwin can report EPERM for a group containing only unreaped zombies.
+            if (process.platform !== "darwin" || error.code !== "EPERM" || Date.now() >= deadline) throw error;
+            await delay(50);
+          }
+        }
+      };
+      await signalGroup("SIGTERM");
       const deadline = Date.now() + 3000;
-      while (alive() && Date.now() < deadline) await delay(50);
-      if (alive()) process.kill(-child.pid, "SIGKILL");
+      while (await signalGroup(0) && Date.now() < deadline) await delay(50);
+      await signalGroup("SIGKILL");
     }
     await exited;
     processInfo.stopped = true;

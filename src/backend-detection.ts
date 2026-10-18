@@ -57,7 +57,7 @@ export interface DetectionDependencies {
   registration?: () => Promise<Registration | undefined>;
   start?: typeof ensureServer;
 }
-/** The pinned 2.0.6 SDK documents service.json as the complete discovery contract.
+/** The pinned 2.0.32 SDK documents service.json as the complete discovery contract.
  * Its discover() hides authentication failures, so preflight the registration
  * before discovery and never fall through a present/inconclusive registration. */
 async function readRegistration(): Promise<Registration | undefined> {

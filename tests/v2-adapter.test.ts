@@ -31,6 +31,11 @@ async function fixture(handler: (call: Call, res: ServerResponse) => unknown, pr
 }
 
 describe("V2 actual SDK HTTP contracts",()=>{
+  it("lists projects with the 2.0.32 input/options signature",async()=>{
+    const {client,calls}=await fixture(()=>[{id:"prj_a",canonical:"/server/project"}]);
+    await expect(operate(client,"projects.list")).resolves.toMatchObject([{id:"prj_a",worktree:"/server/project"}]);
+    expect(calls[0].url.pathname).toBe("/api/project");
+  });
   it.each(["/bridge","/api"])("preserves authoritative base URL prefix %s",async prefix=>{
     const {client,calls}=await fixture(()=>({version:"2.0.6",pid:1,urls:[],paths:{tmp:"/tmp"}}),prefix);
     await expect(operate(client,"lifecycle.health")).resolves.toMatchObject({healthy:true,backend:"v2"});
@@ -219,13 +224,14 @@ describe("V2 normalized reads and scoped mutations over HTTP",()=>{
     });
     const result=await operate(client,"messages.shell",{sessionId:"ses_a",body:{command:"false",agent:"build"}});expect(result.isError).toBe(true);expect(result.info.id).toBe(assigned);expect(result.parts[0].text).toContain("failed");expect(calls.filter(call=>call.method==="POST")).toHaveLength(1);
   });
-  it("filters project events by actual server location and releases the stream",async()=>{
-    const {client}=await fixture(({url},res)=>{
-      if(url.pathname==="/api/location")return{directory:"/canonical/project",project:{id:"prj",directory:"/canonical/project",canonical:"/canonical/project"}};
+  it.each(["", "/bridge", "/api"])("filters project events and preserves URL prefix %s",async prefix=>{
+    const {client,calls}=await fixture(({url},res)=>{
+      if(url.pathname===prefix+"/api/location")return{directory:"/canonical/project",project:{id:"prj",directory:"/canonical/project",canonical:"/canonical/project"}};
       res.setHeader("content-type","text/event-stream");res.end([{type:"server.connected"},{type:"session.created",location:{directory:"/other"},data:{}},{type:"session.updated",location:{directory:"/canonical/project"},data:{}}].map(event=>`data: ${JSON.stringify(event)}\n\n`).join(""));
-    });
+    },prefix);
     const received=[];for await(const event of events(client,"project",{directory:"/server/alias",timeout:1000})){received.push(event);break;}
     expect(received.map(event=>event.event)).toEqual(["session.updated"]);
+    expect(calls.map(call=>call.url.pathname)).toEqual([prefix+"/api/location",prefix+"/api/event"]);
   });
 });
 

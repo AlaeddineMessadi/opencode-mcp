@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Evaluation candidate for the V1/V2 compatibility foundation. The original 65-operation V2 completion gate remains blocked by upstream command correlation; this is not a completed milestone declaration.
 
+### October 18 follow-up
+
+- Pin the V2 client and isolated CLI integration target to 2.0.32. Adapt project-list arguments and remove the URL-prefix workaround now handled by the client, including prefixed event-stream regression coverage.
+- Make owned test-process cleanup tolerate groups exiting before a signal and transient Darwin EPERM while zombies are reaped, while preserving persistent permission failures. Classify cleanup errors without exposing raw server output.
+- Refresh vulnerable lockfile dependencies within the existing declared ranges. No new dependency is introduced.
+- Slash-command correlation remains blocked in 2.0.32. Parent session creation remains conservatively rejected pending validation of the newly added upstream option.
+
 ### Added
 
 - Typed backend operations, normalized results, and one compatibility manifest for all 87 tools, 10 resources, 4 templates, and 6 prompts. V2 currently maps 64 tools, retains 22 explicit V1-only exceptions, and rejects `command_execute` before mutation because V2 2.0.6 supplies no execution receipt or caller-assigned command ID.
@@ -20,7 +27,7 @@ Evaluation candidate for the V1/V2 compatibility foundation. The original 65-ope
 ### Compatibility and validation
 
 - V1 behavior and stored record format remain supported. Authentication errors and ambiguous mutations never trigger fallback submission or replay.
-- Model-free integration exercised `opencode-ai@1.18.31` and `@opencode/cli@2.0.6` on Node.js 22.23.2, macOS arm64. The V2 client dependency is pinned to `@opencode/client@2.0.6`.
+- The September candidate exercised `opencode-ai@1.18.31` and `@opencode/cli@2.0.6` on Node.js 22.23.2, macOS arm64. The current V2 client dependency and integration target are 2.0.32; see the [verification guide](docs/releasing.md) for current evidence.
 - Live provider inference, live job execution, OAuth completion, and interactive permission/form flows were not verified. Those paths have fixture-backed contract and recovery tests; client UI compatibility is not claimed from those fixtures.
 - See [migration guidance](MIGRATION.md) and the generated [compatibility matrix](docs/compatibility.md) for guarded options and the upstream blocker. No package has been published by this change.
 

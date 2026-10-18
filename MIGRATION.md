@@ -1,6 +1,6 @@
 # OpenCode V1/V2 compatibility migration
 
-The compatibility foundation preserves the existing V1 SDK and V1 job records. It adds the pinned `@opencode/client@2.0.6` adapter, explicit backend detection, and a read-only doctor. An API mapping is not proof of live end-to-end behavior: consult the [release verification guide](docs/releasing.md) and record actual backend check results separately.
+The compatibility foundation preserves the existing V1 SDK and V1 job records. It adds the pinned `@opencode/client@2.0.32` adapter, explicit backend detection, and a read-only doctor. An API mapping is not proof of live end-to-end behavior: consult the [release verification guide](docs/releasing.md) and record actual backend check results separately.
 
 ## Select a backend
 
@@ -9,6 +9,8 @@ Keep the existing MCP stdio command and tool profile. `OPENCODE_BACKEND` default
 Without an explicit URL, the bridge probes `http://127.0.0.1:4096`, then checks an existing V2 service registration using the pinned client's read-only discovery contract. Present but invalid, unauthorized, or unresponsive registrations prevent alternate startup. HTTP 401/403 ends detection. Credentials stay in memory and are excluded from doctor output.
 
 `OPENCODE_AUTO_SERVE=true` continues to allow an owned local V1 child when no existing backend or service registration is present. It never enables V2 `Service.ensure()` or stops a shared service. An owned child stops with MCP; externally managed and discovered servers can continue work while their processes remain alive.
+
+For a manually started V2 server, set `OPENCODE_BACKEND=v2`, `OPENCODE_AUTO_SERVE=false`, `OPENCODE_BASE_URL` to its listening URL, and `OPENCODE_SERVER_PASSWORD` to the password it reports. The username defaults to `opencode`. The published 3.0.0 package does not support V2; use this compatibility candidate. Issue [#31](https://github.com/AlaeddineMessadi/opencode-mcp/issues/31) tracks the older V1 launcher's timeout when a V2 executable is installed.
 
 ## Check readiness
 
@@ -31,14 +33,14 @@ The [generated inventory](docs/compatibility.md) records 87 tool names, with 64 
 |---|---|
 | Prompt output | `format` may be omitted or text. JSON-schema output, per-prompt `system`, and `noReply: true` are rejected. |
 | Existing sessions | Model, variant, and agent must match the existing selections. Create a new session to choose different values. |
-| Session creation | `parentID` is rejected; fork explicitly. A variant requires an explicit provider/model pair. |
+| Session creation | The bridge still rejects `parentID`; fork explicitly. Upstream 2.0.32 adds parent creation, but its semantics have not been validated by this bridge. A variant requires an explicit provider/model pair. |
 | Fork | A message boundary is **before** that message. The result reports the boundary. |
 | Diff/review | Supply explicit `from` and `to` message IDs; no range silently means “all session changes.” Cross-location ranges are rejected. |
-| Revert | Whole-message revert is staged and remains reversible through `opencode_session_unrevert`; the bridge never automatically commits it. V2 2.0.6 implicitly commits a staged revert when prompting or compacting, so the bridge rejects those operations while a revert is staged. Clear it with `opencode_session_unrevert`, or explicitly commit it outside the bridge, before continuing. Individual `partID` reverts are rejected. |
+| Revert | Whole-message revert is staged and remains reversible through `opencode_session_unrevert`; the bridge never automatically commits it. V2 2.0.32 implicitly commits a staged revert when prompting or compacting, so the bridge rejects those operations while a revert is staged. Clear it with `opencode_session_unrevert`, or explicitly commit it outside the bridge, before continuing. Individual `partID` reverts are rejected. |
 | Permissions | `once` affects the specified request. `always` requires `scope: "project"`; `reject` requires `scope: "session"` and rejects all pending permissions in that session. Present that scope before forwarding the user's decision. |
 | Questions/forms | Use `sessionId`, `requestId`, and typed, field-keyed `values` from the returned form fields. Legacy selected-label `answers` are not silently converted. |
 | Authentication | `opencode_auth_set` accepts API keys through an integration with a published key method. Use the explicit OAuth workflow for OAuth. |
-| Slash command execution | `opencode_command_execute` is blocked: V2 2.0.6 supplies no caller ID or submission receipt that allows exact completion correlation. No command is submitted. |
+| Slash command execution | `opencode_command_execute` is blocked: V2 2.0.32 supplies no caller ID or submission receipt that allows exact completion correlation. No command is submitted. |
 
 Configuration, providers, sessions, messages, and events may include explicitly labeled V2 raw data or pagination metadata. Consumers should use the bridge's normalized fields and inspect `isError`, structured state, and completeness instead of assuming V1 internals.
 

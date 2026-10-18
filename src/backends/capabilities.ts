@@ -43,7 +43,7 @@ export const capabilities: readonly Capability[] = [
   { name: "opencode_message_get", kind: "tool", v1: "supported", v2: "supported" },
   { name: "opencode_message_send", kind: "tool", v1: "supported", v2: "supported" },
   { name: "opencode_message_send_async", kind: "tool", v1: "supported", v2: "supported" },
-  { name: "opencode_command_execute", kind: "tool", v1: "supported", v2: "blocked", reason: "V2 2.0.6 command accepts no caller identifier and returns void; exact execution completion cannot be correlated safely." },
+  { name: "opencode_command_execute", kind: "tool", v1: "supported", v2: "blocked", reason: "V2 2.0.32 command accepts no caller identifier and returns void; exact execution completion cannot be correlated safely." },
   { name: "opencode_shell_execute", kind: "tool", v1: "supported", v2: "supported" },
   { name: "opencode_session_list", kind: "tool", v1: "supported", v2: "supported" },
   { name: "opencode_session_create", kind: "tool", v1: "supported", v2: "supported" },

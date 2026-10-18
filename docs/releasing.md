@@ -2,11 +2,13 @@
 
 ## V1/V2 evidence requirements
 
-The compatibility foundation targets `opencode-ai@1.18.31` for V1 and `@opencode/cli@2.0.6` for V2, with `@opencode/client@2.0.6` pinned. Run each in a disposable installation and isolated state directory. Do not replace a global OpenCode executable or attach to a user's shared service for mutation tests.
+The compatibility foundation targets `opencode-ai@1.18.31` for V1 and `@opencode/cli@2.0.32` for V2, with `@opencode/client@2.0.32` pinned. Run each in a disposable installation and isolated state directory. Do not replace a global OpenCode executable or attach to a user's shared service for mutation tests.
 
 Fixture tests verify transport contracts, normalization, request guards, job correlation, and CLI behavior. They do not establish live model/provider compatibility. Likewise, doctor's `matchesIntegrationTarget` is a version comparison, not live verification evidence. Record the exact backend, command, exit status, covered operations, and skipped capabilities for each live run. Inference must remain opt-in with an explicitly selected provider/model.
 
-The generated [capability inventory](compatibility.md) currently lists 64 V2 tool mappings, 22 intentional V1-only exceptions, and one upstream-blocked operation. `opencode_command_execute` remains blocked because the V2 2.0.6 contract cannot correlate exact command completion. Passing tests does not fulfill that missing behavior, and no detached command may be substituted. Keep this limitation in release notes until an upstream contract and its regression tests resolve it.
+The generated [capability inventory](compatibility.md) currently lists 64 V2 tool mappings, 22 intentional V1-only exceptions, and one upstream-blocked operation. `opencode_command_execute` remains blocked because the V2 2.0.32 contract cannot correlate exact command completion. Passing tests does not fulfill that missing behavior, and no detached command may be substituted. Keep this limitation in release notes until an upstream contract and its regression tests resolve it.
+
+October 18 local verification: isolated V1 1.18.31 and V2 2.0.32 passed the model-free native archive checks on macOS arm64 with Node 22.23.3 and 24.20.0. The regression suite passed 764 tests with three platform/baseline skips on each Node version. These results do not cover live inference, job execution/recovery, forms/permissions, OAuth, or interactive clients.
 
 ## Verify the installed archive and isolated backends
 

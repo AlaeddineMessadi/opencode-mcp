@@ -2,7 +2,7 @@
 
 Baseline: `0de817a`. User-approved scope: milestone 1 only. Original checkout and historical review remain intact.
 
-Implementation and local verification are complete for the supported scope; release candidate `3.1.0-rc.1` is prepared. The original milestone acceptance gate remains **BLOCKED**: V2 supports 64 tools, with 22 planned V1-only exceptions and `opencode_command_execute` blocked by the upstream 2.0.6 contract. See [final evidence and limitations](verification.md#final-candidate-evidence-2026-09-17). No publication is claimed.
+Implementation and local verification are complete for the supported scope; release candidate `3.1.0-rc.1` is prepared. The original milestone acceptance gate remains **BLOCKED**: V2 supports 64 tools, with 22 planned V1-only exceptions and `opencode_command_execute` still blocked by the upstream 2.0.32 contract. See [current CI/upgrade evidence](007-ci-and-opencode-2.0.32.md) and [historical candidate evidence](verification.md#final-candidate-evidence-2026-09-17). No publication is claimed.
 
 | Package | Status | Dependency |
 |---|---|---|
@@ -12,6 +12,7 @@ Implementation and local verification are complete for the supported scope; rele
 | [004: V2 mutations, forms, OAuth, permissions](004-v2-writes-input.md) | Implemented except upstream-blocked command; forms/OAuth fixture-tested | 003 |
 | [005: Durable V2 jobs and native Tasks](005-durable-v2-jobs.md) | Implemented; recovery and native Tasks fixture-tested; live inference unverified | 004 |
 | [006: Compatibility, documentation, package CI and release candidate](006-release-verification.md) | RC retained bytes verified on Node 22/24; initial native-test failure unreproduced; hosted OS matrix unrun | 005 |
+| [007: CI cleanup and OpenCode 2.0.32](007-ci-and-opencode-2.0.32.md) | Local cleanup fix and adapter upgrade verified; refreshed hosted checks pending | 006 |
 
 ## Open upstream blocker
 

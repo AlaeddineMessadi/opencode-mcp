@@ -185,8 +185,12 @@ describe("V2 durable job controls", () => {
   });
   it("bounds a hung cancellation and never replays its ambiguous mutation", async () => {
     const f = fixture(); const service = new JobService(f.client, { storeRoot: root }); const job = await running(f, service);
-    f.api.session.interrupt.mockImplementation(() => new Promise(() => {}));
-    expect((await withRequestOptions({ timeout: 30 }, () => service.cancel(job.jobId!))).status).toBe("unknown");
+    const controller = new AbortController();
+    f.api.session.interrupt.mockImplementation(() => {
+      controller.abort(new DOMException("Operation deadline exceeded", "TimeoutError"));
+      return new Promise(() => {});
+    });
+    expect((await withRequestOptions({ signal: controller.signal }, () => service.cancel(job.jobId!))).status).toBe("unknown");
     expect((await service.cancel(job.jobId!)).status).toBe("unknown"); expect(f.api.session.interrupt).toHaveBeenCalledTimes(1);
   });
   it("allows retry after a definite nested SDK cancellation rejection", async () => {

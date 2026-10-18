@@ -36,6 +36,36 @@ import { executableCommand } from "../scripts/test-compat.mjs";
 import { childProcess, stopProcess, run } from "../scripts/test-package.mjs";
 
 describe("isolated executable process ownership", () => {
+  it.skipIf(process.platform !== "darwin").each([0, "SIGTERM", "SIGKILL"])("waits for Darwin to reap a zombie-only group during %s", async transientSignal => {
+    let transient = true;
+    const kill = vi.spyOn(process, "kill").mockImplementation((_pid, signal) => {
+      if (signal === transientSignal && transient) {
+        transient = false;
+        throw Object.assign(new Error("zombie group"), { code: "EPERM" });
+      }
+      throw Object.assign(new Error("group exited"), { code: "ESRCH" });
+    });
+    const owned = { child: { pid: 12345 }, exited: Promise.resolve({ code: 0 }), ownedProcessGroup: true };
+    try { await expect(stopProcess(owned)).resolves.toBeUndefined(); expect(transient).toBe(false); }
+    finally { kill.mockRestore(); }
+  });
+  it.skipIf(process.platform === "win32").each(["SIGTERM", "SIGKILL"])("accepts a process group exiting before %s", async missingSignal => {
+    let probes = 0;
+    const kill = vi.spyOn(process, "kill").mockImplementation((_pid, signal) => {
+      if (signal === missingSignal || (signal === 0 && ++probes === 2)) throw Object.assign(new Error("group exited"), { code: "ESRCH" });
+      return true;
+    });
+    const owned = { child: { pid: 12345 }, exited: Promise.resolve({ code: 0 }), ownedProcessGroup: true };
+    try { await expect(stopProcess(owned)).resolves.toBeUndefined(); }
+    finally { kill.mockRestore(); }
+  });
+  it.skipIf(process.platform === "win32")("does not hide process-group permission failures", async () => {
+    const error = Object.assign(new Error("permission denied"), { code: "EPERM" });
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => { throw error; });
+    try {
+      await expect(stopProcess({ child: { pid: 12345 }, exited: Promise.resolve({ code: 0 }), ownedProcessGroup: true })).rejects.toBe(error);
+    } finally { kill.mockRestore(); }
+  });
   it("invokes JavaScript shebang wrappers through the current Node executable", async () => {
     const root = await mkdtemp(join(tmpdir(), "opencode-launcher-"));
     try {
@@ -111,7 +141,7 @@ describe("retained compatibility archives", () => {
 function diagnostic(configured: boolean) {
   return { schemaVersion: 1, ready: configured, checks: ["node", "configuration", "backend", "authentication", "supported_version", "project_access", "lifecycle"].map(id => ({ id, status: "pass" })).concat([
     { id: "provider_configuration", status: configured ? "pass" : "fail", message: configured ? "Provider configured" : "No configured provider was found." } as any,
-  ]), backend: { version: "2.0.6", integrationTargetVersion: "2.0.6", matchesIntegrationTarget: true, processOwnership: "external", connectionSource: "explicit", survivesDisconnect: true } };
+  ]), backend: { version: "2.0.32", integrationTargetVersion: "2.0.32", matchesIntegrationTarget: true, processOwnership: "external", connectionSource: "explicit", survivesDisconnect: true } };
 }
 describe("native doctor contract assertions", () => {
   it.each([false, true])("accepts accurate readiness when configured=%s", configured => {
@@ -141,5 +171,7 @@ describe("safe native failure classification", () => {
   it("allows only known names, codes, signals and numeric exit status", () => {
     expect(safeFailureDetails({ name: "secret-sentinel", code: "secret-sentinel" }, { child: { exitCode: "secret-sentinel", signalCode: "secret-sentinel" } })).toEqual({ backendExitCode: null, backendSignal: null });
     expect(safeFailureDetails({ name: "Error", code: "ESRCH" }, { child: { exitCode: 1, signalCode: "SIGTERM" } })).toEqual({ name: "Error", code: "ESRCH", backendExitCode: 1, backendSignal: "SIGTERM" });
+    expect(safeFailureDetails({ name: "Error", code: "EPERM", message: "secret-sentinel" })).toEqual({ name: "Error", code: "EPERM" });
+    expect(safeFailureDetails({ name: "Error", code: "BACKEND_PORT_OPEN" })).toEqual({ name: "Error", code: "BACKEND_PORT_OPEN" });
   });
 });

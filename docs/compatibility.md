@@ -12,13 +12,13 @@ The full and essential profiles keep their existing names and schemas. An unavai
 - **unsupported:** an intentional V1-only exception for this milestone.
 - **blocked:** a required operation could not preserve the public behavior with the pinned upstream contract. It remains an outstanding compatibility limitation.
 
-The integration targets are OpenCode V1 `opencode-ai@1.18.31` and OpenCode V2 `@opencode/cli@2.0.6`, with `@opencode/client@2.0.6` pinned. Version recognition and fixture coverage are separate from [live verification evidence](releasing.md). Doctor reports the target version without claiming that a live integration check has passed.
+The integration targets are OpenCode V1 `opencode-ai@1.18.31` and OpenCode V2 `@opencode/cli@2.0.32`, with `@opencode/client@2.0.32` pinned. Version recognition and fixture coverage are separate from [live verification evidence](releasing.md). Doctor reports the target version without claiming that a live integration check has passed.
 
-V2 whole-message reverts remain staged and reversible. Because upstream 2.0.6 automatically commits staged reverts when prompting or compacting, the bridge rejects those operations until the revert is cleared with `opencode_session_unrevert` or explicitly committed outside the bridge.
+V2 whole-message reverts remain staged and reversible. Because upstream 2.0.32 automatically commits staged reverts when prompting or compacting, the bridge rejects those operations until the revert is cleared with `opencode_session_unrevert` or explicitly committed outside the bridge.
 
 ## Required upstream follow-up
 
-- **`opencode_command_execute`**: V2 2.0.6 command accepts no caller identifier and returns void; exact execution completion cannot be correlated safely. No detached command or guessed completion result is substituted.
+- **`opencode_command_execute`**: V2 2.0.32 command accepts no caller identifier and returns void; exact execution completion cannot be correlated safely. No detached command or guessed completion result is substituted.
 
 ## Tools (87)
 
@@ -28,7 +28,7 @@ V2 whole-message reverts remain staged and reversible. Because upstream 2.0.6 au
 | `opencode_ask` | supported | supported |  |
 | `opencode_auth_set` | supported | supported |  |
 | `opencode_check` | supported | supported |  |
-| `opencode_command_execute` | supported | blocked | V2 2.0.6 command accepts no caller identifier and returns void; exact execution completion cannot be correlated safely. |
+| `opencode_command_execute` | supported | blocked | V2 2.0.32 command accepts no caller identifier and returns void; exact execution completion cannot be correlated safely. |
 | `opencode_command_list` | supported | supported |  |
 | `opencode_config_get` | supported | supported |  |
 | `opencode_config_providers` | supported | supported |  |
