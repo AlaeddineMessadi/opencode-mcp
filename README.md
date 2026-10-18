@@ -10,7 +10,9 @@ opencode-mcp connects Claude, Cursor, VS Code, and other MCP clients to OpenCode
 
 > Version 3.0.0 requires **Node.js 22 or newer**. Upgrading from 2.x? See the [migration notes](CHANGELOG.md#300---2026-09-16).
 
-This source branch adds an OpenCode V1/V2 compatibility foundation. It retains the V1 API and adds the pinned V2 client contract. V2 currently maps **64 tools**, keeps **22 V1-only exceptions**, and blocks **1 command operation** whose completion cannot be correlated safely. See the [generated compatibility inventory](docs/compatibility.md) and [V1/V2 migration guide](MIGRATION.md). This is not a claim that every live backend workflow has been verified.
+**3.1.0-rc.2 is a prerelease candidate; V2 support is experimental.** The stable npm package remains 3.0.0 and supports V1. Use the source-build instructions below to evaluate this unpublished candidate.
+
+This source branch adds an OpenCode V1/V2 compatibility foundation. It retains the V1 API and adds the pinned V2 client contract. V2 currently maps **64 tools**, keeps **22 V1-only exceptions**, and disables **`opencode_command_execute` on V2** because its completion cannot be correlated safely. V1 command execution remains available. See the [generated compatibility inventory](docs/compatibility.md) and [V1/V2 migration guide](MIGRATION.md). This is not a claim that every live backend workflow has been verified.
 
 ## Quick Start
 

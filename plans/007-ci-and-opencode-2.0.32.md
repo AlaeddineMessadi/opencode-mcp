@@ -29,7 +29,7 @@ An unrelated 30ms cancellation fixture timed out during filesystem setup in a pa
 - Node 24.20.0: real isolated V1 1.18.31 and V2 2.0.32 plus installed bridge archive passed (`artifacts/compat-2032-cleanup-fixed-node24.log`). Includes runtime identity, read-only doctor, project list/current, paths, agents, configuration, file reads, session CRUD/list, bridge disconnect survival, process cleanup and port closure.
 - Node 22.23.3: production archive executable, initialization, 87-tool catalog, fixture calls and EOF shutdown passed (`artifacts/package-2032-node22.log`).
 - Node 22.23.3: the same V1/V2 native checks passed (`artifacts/compat-2032-node22.log`). Both Node versions tested the archive with integrity `sha512-ZD7tAE4YPF9Mrj82RecxLxxVGTkFwZ9JkGC3QsDGwVWfIZfSNUiDU6eQ6p4wGCRW2m7DnDnYd31WlfxyvNJxog==`.
-- Generated docs check, audit (zero advisories), and whitespace checks passed. Updated hosted CI results will be recorded after completion.
+- Generated docs check, audit (zero advisories), and whitespace checks passed. All six hosted Ubuntu/macOS/Windows × Node 22/24 jobs passed at `3454942` in [run 39153690429](https://github.com/AlaeddineMessadi/opencode-mcp/actions/runs/39153690429).
 
 Live inference, durable execution recovery, forms/permissions, OAuth and GUI clients remain unverified. Existing fixture coverage is not live evidence. The retained September RC archive is unchanged and does not contain this continuation.
 

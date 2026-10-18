@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { BackendDetectionError, DEFAULT_BASE_URL, detectBackend, readBackendConfig } from "../src/backend-detection.js";
 
+import { IncompatibleServerError } from "../src/server-manager.js";
+
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const info = { version: "2.0.6", pid: 42, urls: ["http://127.0.0.1:4100"], paths: { tmp: "/tmp" } };
 const config = (values: NodeJS.ProcessEnv = {}) => readBackendConfig(values);
@@ -91,4 +93,21 @@ describe("backend detection", () => {
     await expect(detectBackend(config(), { timeout: 40 }, { fetch, start, discover: () => new Promise(() => {}), registration: async () => ({ url: "http://127.0.0.1:4100", pid: 42 }) })).rejects.toMatchObject({ code: "timeout" });
     expect(Date.now() - before).toBeLessThan(500); expect(start).not.toHaveBeenCalled();
   });
+});
+
+
+it("preserves the actionable startup incompatibility diagnostic", async () => {
+  const error = new IncompatibleServerError();
+  await expect(detectBackend(config({ OPENCODE_AUTO_SERVE: "true" }), { allowStartup: true }, {
+    fetch: vi.fn(async () => { throw new Error("offline"); }), registration: absent,
+    start: vi.fn(async () => { throw error; }),
+  })).rejects.toMatchObject({ code: "incompatible", message: error.message });
+});
+
+it("detects existing V2 behind V1 HTML without starting a child", async () => {
+  const start = vi.fn();
+  const fetch = vi.fn(async (url: any) => String(url).endsWith("/api/info") ? response(info) : new Response("<html>OpenCode</html>"));
+  const result = await detectBackend(config({ OPENCODE_BASE_URL: "http://host.test", OPENCODE_AUTO_SERVE: "true" }), { allowStartup: true }, { fetch, start });
+  expect(result.identity.kind).toBe("v2");
+  expect(start).not.toHaveBeenCalled();
 });

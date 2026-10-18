@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Service, type Endpoint } from "@opencode/client/service";
 import { createRequestContext, throwIfAborted, withAbort, type RequestOptions } from "./async.js";
-import { ensureServer, ServerAuthenticationError, stopServer } from "./server-manager.js";
+import { ensureServer, IncompatibleServerError, ServerAuthenticationError, stopServer } from "./server-manager.js";
 import type { BackendIdentity, BackendKind } from "./backends/contracts.js";
 
 export const DEFAULT_BASE_URL = "http://127.0.0.1:4096";
@@ -162,6 +162,7 @@ export async function detectBackend(config: BackendConfig, options: RequestOptio
   } catch (error) {
     if (context.signal.aborted) throw new BackendDetectionError("timeout", "Backend detection exceeded its time budget.");
     if (error instanceof ServerAuthenticationError) throw new BackendDetectionError("authentication", "Server authentication failed; no alternate server was started.", error.status);
+    if (error instanceof IncompatibleServerError) throw new BackendDetectionError("incompatible", error.message);
     if (error instanceof BackendDetectionError) throw error;
     throw new BackendDetectionError("unavailable", "OpenCode discovery failed. Check the server and service registration.");
   } finally { context.dispose(); }

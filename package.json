@@ -1,6 +1,6 @@
 {
   "name": "opencode-mcp",
-  "version": "3.1.0-rc.1",
+  "version": "3.1.0-rc.2",
   "description": "MCP server for OpenCode coding workflows, durable async jobs, project resources, and explicit user input",
   "type": "module",
   "main": "dist/index.js",

@@ -1,5 +1,7 @@
 # OpenCode V1/V2 compatibility migration
 
+> **Experimental V2 support in 3.1.0-rc.2.** V2 slash-command execution is disabled before submission. V1 behavior remains supported. Live inference, recovery, forms, OAuth, and interactive clients are not yet verified; see [release evidence](docs/releasing.md).
+
 The compatibility foundation preserves the existing V1 SDK and V1 job records. It adds the pinned `@opencode/client@2.0.32` adapter, explicit backend detection, and a read-only doctor. An API mapping is not proof of live end-to-end behavior: consult the [release verification guide](docs/releasing.md) and record actual backend check results separately.
 
 ## Select a backend
@@ -10,7 +12,7 @@ Without an explicit URL, the bridge probes `http://127.0.0.1:4096`, then checks 
 
 `OPENCODE_AUTO_SERVE=true` continues to allow an owned local V1 child when no existing backend or service registration is present. It never enables V2 `Service.ensure()` or stops a shared service. An owned child stops with MCP; externally managed and discovered servers can continue work while their processes remain alive.
 
-For a manually started V2 server, set `OPENCODE_BACKEND=v2`, `OPENCODE_AUTO_SERVE=false`, `OPENCODE_BASE_URL` to its listening URL, and `OPENCODE_SERVER_PASSWORD` to the password it reports. The username defaults to `opencode`. The published 3.0.0 package does not support V2; use this compatibility candidate. Issue [#31](https://github.com/AlaeddineMessadi/opencode-mcp/issues/31) tracks the older V1 launcher's timeout when a V2 executable is installed.
+For a manually started V2 server, set `OPENCODE_BACKEND=v2`, `OPENCODE_AUTO_SERVE=false`, `OPENCODE_BASE_URL` to its listening URL, and `OPENCODE_SERVER_PASSWORD` to the password it reports. The username defaults to `opencode`. The published 3.0.0 package does not support V2; use this compatibility candidate. The [#31](https://github.com/AlaeddineMessadi/opencode-mcp/issues/31) startup guard now checks `opencode --version` before owned-child startup and rejects a recognized V2 executable promptly. If a custom launcher cannot report a version, the bounded SDK startup path remains.
 
 ## Check readiness
 

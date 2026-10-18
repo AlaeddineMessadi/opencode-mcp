@@ -1,5 +1,13 @@
 # Release and live verification
 
+## Experimental prerelease scope
+
+Candidate `3.1.0-rc.2` preserves V1 behavior and marks V2 experimental: 64 mapped tools, 22 explicit V1-only exceptions, and `opencode_command_execute` disabled before submission. This user-approved reduced scope allows prerelease preparation without waiting for upstream #49690; the original 65-tool milestone remains incomplete.
+
+Publication is a separate authorized action. Publish the tested archive with `npm publish /absolute/path/opencode-mcp-3.1.0-rc.2.tgz --tag next`, never the default tag. Keep `latest` on 3.0.0 and verify both tags afterward. No tag, GitHub release, or npm publication is created by preparation.
+
+Before stable V2 promotion, verify live prompt/job completion, restart recovery, cancellation ownership, forms/permissions, OAuth and at least one actual MCP client with exact provider/model/backend versions recorded. Until then, keep experimental and unverified labels visible. Upstream command support requires its own contract and regression evidence before enabling it.
+
 ## V1/V2 evidence requirements
 
 The compatibility foundation targets `opencode-ai@1.18.31` for V1 and `@opencode/cli@2.0.32` for V2, with `@opencode/client@2.0.32` pinned. Run each in a disposable installation and isolated state directory. Do not replace a global OpenCode executable or attach to a user's shared service for mutation tests.
@@ -8,7 +16,7 @@ Fixture tests verify transport contracts, normalization, request guards, job cor
 
 The generated [capability inventory](compatibility.md) currently lists 64 V2 tool mappings, 22 intentional V1-only exceptions, and one upstream-blocked operation. `opencode_command_execute` remains blocked because the V2 2.0.32 contract cannot correlate exact command completion. Passing tests does not fulfill that missing behavior, and no detached command may be substituted. Keep this limitation in release notes until an upstream contract and its regression tests resolve it.
 
-October 18 local verification: isolated V1 1.18.31 and V2 2.0.32 passed the model-free native archive checks on macOS arm64 with Node 22.23.3 and 24.20.0. The regression suite passed 764 tests with three platform/baseline skips on each Node version. These results do not cover live inference, job execution/recovery, forms/permissions, OAuth, or interactive clients.
+Previous verification at `3454942` (October 18): isolated V1 1.18.31 and V2 2.0.32 passed the model-free native archive checks on macOS arm64 with Node 22.23.3 and 24.20.0. The regression suite passed 764 tests with three platform/baseline skips on each Node version. These results do not cover live inference, job execution/recovery, forms/permissions, OAuth, or interactive clients.
 
 ## Verify the installed archive and isolated backends
 

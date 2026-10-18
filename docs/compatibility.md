@@ -6,6 +6,8 @@ The catalog contains **87 tools**. V1 supports all 87; V2 has **64 supported too
 
 The full and essential profiles keep their existing names and schemas. An unavailable V2 call returns a structured `UNSUPPORTED_CAPABILITY` error before mutation; it never falls back to a V1 route. Resource and prompt inventories are included below.
 
+**V2 support is experimental in the 3.1 prerelease.** V2 slash-command execution is disabled before submission. V1 command execution remains supported. Live inference, recovery, forms, OAuth and interactive clients still require verification.
+
 ## Meaning of support
 
 - **supported:** an adapter mapping exists. Individual options may still require explicit preflight rejection; see [migration](../MIGRATION.md). This status does not claim that every option or live execution has been verified.

@@ -155,6 +155,6 @@ opencode serve --hostname 127.0.0.1 --port 4096
 
 Or share the TUI's server by starting it with `opencode --port 4096`. For custom flags, start OpenCode manually. `OPENCODE_SERVE_ARGS` is unsupported by the SDK launcher.
 
-To opt in to a separate local V1 child server, add `"OPENCODE_AUTO_SERVE": "true"` under your MCP server's `env`. Automatic startup accepts loopback HTTP endpoints only and shuts down only the child it launched. An existing external server or discovered V2 service remains running when the MCP client disconnects. Start V2 separately and use its URL or existing local registration.
+To opt in to a separate local V1 child server, add `"OPENCODE_AUTO_SERVE": "true"` under your MCP server's `env`. Automatic startup accepts loopback HTTP endpoints only and shuts down only the child it launched. An existing external server or discovered V2 service remains running when the MCP client disconnects. A preflight `opencode --version` check rejects recognized V2 executables before V1 SDK startup. Start V2 separately and use its URL or existing local registration; V2 support is experimental.
 
 When other TUI instances are running, prefer a shared explicitly configured server. [Issue #18](https://github.com/AlaeddineMessadi/opencode-mcp/issues/18) reports hangs when a second server shares OpenCode storage; the underlying cause has not been confirmed. MCP does not scan processes to select a TUI.

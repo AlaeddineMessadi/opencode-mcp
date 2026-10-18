@@ -1,4 +1,5 @@
 import { createOpencodeServer, OpencodeClient } from "@opencode-ai/sdk";
+import { execFile } from "node:child_process";
 
 export interface ServerManagerOptions {
   baseUrl: string;
@@ -116,17 +117,26 @@ export async function isServerRunning(
       throw new ServerAuthenticationError(response.status);
     }
     if (!response.ok) return { healthy: false };
-    const res = await response.json() as any;
-    if (res && typeof res === 'object' && 'healthy' in res) {
+    const res = await response.json().catch((error: unknown) => {
+      if (error instanceof SyntaxError) throw new IncompatibleServerError();
+      throw error;
+    }) as any;
+    if (res && typeof res === 'object' && typeof res.healthy === 'boolean') {
         return {
             healthy: res.healthy === true,
             version: typeof res.version === "string" ? res.version : undefined,
         };
     }
-    return { healthy: false };
+    throw new IncompatibleServerError();
   } catch (error) {
-    if (error instanceof ServerAuthenticationError) throw error;
+    if (error instanceof ServerAuthenticationError || error instanceof IncompatibleServerError) throw error;
     return { healthy: false };
+  }
+}
+
+export class IncompatibleServerError extends Error {
+  constructor(message = "The endpoint does not expose V1 health JSON. For experimental V2 support, connect to a separately started V2 server with OPENCODE_BACKEND=v2, OPENCODE_AUTO_SERVE=false, its URL and credentials.") {
+    super(message); this.name = "IncompatibleServerError";
   }
 }
 
@@ -150,6 +160,17 @@ export async function startServer(
   }
   const { hostname, port } = parseBaseUrl(baseUrl);
 
+  const version = await new Promise<string>((resolve) => {
+    execFile("opencode", ["--version"], {
+      encoding: "utf8", timeout: Math.min(3000, Math.max(1, deadline - Date.now())),
+      windowsHide: true, shell: process.platform === "win32",
+    }, (error, stdout) => resolve(error ? "" : stdout));
+  });
+  if (Number(version.trim().match(/^v?(\d+)\./)?.[1]) >= 2) {
+    throw new IncompatibleServerError("OpenCode V2 or newer cannot be auto-started by the V1 SDK. Use an opencode-ai 1.x executable for auto-start, or connect to a separately started V2 server with OPENCODE_BACKEND=v2, OPENCODE_AUTO_SERVE=false, its URL and credentials (experimental support).");
+  }
+  // shortcut: launchers without version output keep SDK startup, extend detection when a wrapper needs it.
+  if (Date.now() >= deadline) throw new Error("OpenCode startup exceeded its time budget.");
   console.error(`Starting OpenCode SDK server on ${hostname}:${port}`);
 
   // Capture into a local so concurrent `startServer` calls (against
@@ -160,7 +181,7 @@ export async function startServer(
   const created = await createOpencodeServer({
     hostname,
     port,
-    timeout: timeoutMs,
+    timeout: Math.max(1, deadline - Date.now()),
   });
   managedServer = created;
 
