@@ -138,6 +138,24 @@ describe("smoke options", () => {
     expect(env).toEqual({ OPENCODE_BASE_URL: "http://localhost:4096", OPENCODE_SERVER_USERNAME: "fixture-user", OPENCODE_SERVER_PASSWORD: "fixture-password", OPENCODE_AUTO_SERVE: "false" });
   });
 
+  it("forwards bearer-token and OpenChamber credentials to the smoke child", () => {
+    const env = smokeEnvironment({ baseUrl: "http://localhost:4096" }, {
+      OPENCODE_SERVER_TOKEN: "fixture-token",
+      OPENCODE_OPENCHAMBER_PASSWORD: "fixture-ui-password",
+      OPENCODE_OPENCHAMBER_URL: "http://localhost:4096",
+      OPENCODE_OPENCHAMBER_CLIENT_ID: "fixture-client-id",
+      UNRELATED_SECRET: "not-forwarded",
+    });
+    expect(env).toEqual({
+      OPENCODE_BASE_URL: "http://localhost:4096",
+      OPENCODE_AUTO_SERVE: "false",
+      OPENCODE_SERVER_TOKEN: "fixture-token",
+      OPENCODE_OPENCHAMBER_PASSWORD: "fixture-ui-password",
+      OPENCODE_OPENCHAMBER_URL: "http://localhost:4096",
+      OPENCODE_OPENCHAMBER_CLIENT_ID: "fixture-client-id",
+    });
+  });
+
   it("rejects embedded credentials, remote fixture ambiguity, and unknown options", () => {
     expect(() => smokeOptions(["--base-url", "http://user:fixture@localhost:4096"], {})).toThrow("credentials");
     expect(() => smokeOptions(["--base-url", "https://example.com"], {})).toThrow("disposable");

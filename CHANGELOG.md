@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Bearer-token authentication with `OPENCODE_SERVER_TOKEN`.
+- OpenChamber sign-in with `OPENCODE_OPENCHAMBER_PASSWORD` (and optional `OPENCODE_OPENCHAMBER_URL`): exchanges the UI password for a client token, keeps it in memory, and renews it once on 401. Applies to API requests, event streams and the health probe. Each process gets a distinct client identifier by default (override with `OPENCODE_OPENCHAMBER_CLIENT_ID`), so independent MCP instances on the same host do not replace each other's token.
+
+### Fixed
+
+- Event streams (`opencode_events_poll`) preserved the `OPENCODE_BASE_URL` path prefix (e.g. OpenChamber's `/api` proxy) instead of resolving against the origin alone.
+- The smoke-test runner now forwards `OPENCODE_SERVER_TOKEN`, `OPENCODE_OPENCHAMBER_PASSWORD`, `OPENCODE_OPENCHAMBER_URL` and `OPENCODE_OPENCHAMBER_CLIENT_ID` to the smoke child.
+
 ## [3.0.0] - 2026-09-16
 
 ### Breaking changes
