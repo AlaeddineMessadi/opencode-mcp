@@ -15,6 +15,8 @@ export interface OpenCodeClientOptions {
   openchamberPassword?: string;
   /** OpenChamber origin (`OPENCODE_OPENCHAMBER_URL`). */
   openchamberUrl?: string;
+  /** Overrides the per-process OpenChamber dedupe scope (`OPENCODE_OPENCHAMBER_CLIENT_ID`). */
+  clientId?: string;
   autoServe?: boolean;
 }
 
@@ -216,7 +218,11 @@ export class OpenCodeClient {
   }
 
   async *subscribeSSE(path: string, opts: RequestOptions & { directory?: string } = {}): AsyncGenerator<{ event: string; data: string }, void, undefined> {
-    const url = new URL(path, this.baseUrl).toString();
+    // `new URL(path, this.baseUrl)` resolves an absolute `path` against the
+    // origin, discarding any base path (e.g. OpenChamber's `/api` proxy
+    // prefix). Join on the string form of baseUrl instead, which already has
+    // its trailing slash stripped in the constructor.
+    const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = { Accept: "text/event-stream", "Cache-Control": "no-cache" };
     const normalized = normalizeDirectory(opts.directory);
     if (normalized) headers["x-opencode-directory"] = normalized;

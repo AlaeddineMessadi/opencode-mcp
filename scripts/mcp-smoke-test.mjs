@@ -43,7 +43,14 @@ export function smokeOptions(argv = [], env = process.env) {
 
 export function smokeEnvironment(options, env = process.env) {
   const childEnv = { OPENCODE_BASE_URL: options.baseUrl, OPENCODE_AUTO_SERVE: "false" };
-  for (const key of ["OPENCODE_SERVER_USERNAME", "OPENCODE_SERVER_PASSWORD"]) {
+  for (const key of [
+    "OPENCODE_SERVER_USERNAME",
+    "OPENCODE_SERVER_PASSWORD",
+    "OPENCODE_SERVER_TOKEN",
+    "OPENCODE_OPENCHAMBER_PASSWORD",
+    "OPENCODE_OPENCHAMBER_URL",
+    "OPENCODE_OPENCHAMBER_CLIENT_ID",
+  ]) {
     if (env[key] !== undefined) childEnv[key] = env[key];
   }
   return childEnv;

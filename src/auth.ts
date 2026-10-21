@@ -1,4 +1,5 @@
 import { hostname } from "node:os";
+import { randomUUID } from "node:crypto";
 
 export interface AuthOptions {
   /** HTTP Basic credentials for an OpenCode server started with OPENCODE_SERVER_PASSWORD. */
@@ -10,6 +11,13 @@ export interface AuthOptions {
   openchamberPassword?: string;
   /** OpenChamber origin hosting `/auth/session`; defaults to the base URL's origin. */
   openchamberUrl?: string;
+  /**
+   * Overrides the identifier that scopes this instance's OpenChamber
+   * `dedupeKey` (`OPENCODE_OPENCHAMBER_CLIENT_ID`). Set this when two MCP
+   * instances must intentionally share one client record, e.g. across
+   * restarts; otherwise a random one is generated per process.
+   */
+  clientId?: string;
 }
 
 const LOGIN_TIMEOUT_MS = 15_000;
@@ -25,8 +33,24 @@ export class AuthProvider {
   private token?: string;
   private login?: Promise<string>;
 
+  /**
+   * Identifies this MCP instance to OpenChamber. Stable for the lifetime of
+   * the provider (and thus reused for every renewal), but unique per
+   * instance so a second independent MCP instance on the same host cannot
+   * replace this one's client record: OpenChamber v2.4.0 revokes the
+   * previous client record whenever a login reuses a `dedupeKey` (see
+   * https://github.com/openchamber/openchamber/blob/v2.4.0/packages/web/
+   * server/lib/client-auth/remote-clients.js#L188-L200), so a key derived
+   * only from `hostname()` let a second MCP process silently invalidate the
+   * first one's cached token. Override with `OPENCODE_OPENCHAMBER_CLIENT_ID`
+   * when two instances must intentionally share one client record, e.g.
+   * across restarts of a supervised process that should keep one slot.
+   */
+  private readonly instanceId: string;
+
   constructor(private readonly options: AuthOptions, private readonly baseUrl: string) {
     this.token = options.openchamberPassword ? undefined : options.token || undefined;
+    this.instanceId = options.clientId || `${process.pid}-${randomUUID()}`;
   }
 
   /** True when a rejected token can be renewed without user action. */
@@ -76,7 +100,8 @@ export class AuthProvider {
           trustDevice: true,
           clientLabel: `opencode-mcp (${host})`,
           clientKind: "desktop",
-          dedupeKey: `opencode-mcp:${host}`,
+          // Scoped to this instance, not just this host: see `instanceId` above.
+          dedupeKey: `opencode-mcp:${host}:${this.instanceId}`,
         }),
         signal: AbortSignal.timeout(LOGIN_TIMEOUT_MS),
       });

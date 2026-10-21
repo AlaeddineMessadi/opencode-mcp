@@ -12,6 +12,7 @@ An OpenCode server must already be running unless automatic startup is explicitl
 | `OPENCODE_SERVER_TOKEN` | unset | Bearer token sent as `Authorization: Bearer <token>`; replaces Basic auth |
 | `OPENCODE_OPENCHAMBER_PASSWORD` | unset | OpenChamber UI password, exchanged for a client token; see below |
 | `OPENCODE_OPENCHAMBER_URL` | origin of `OPENCODE_BASE_URL` | OpenChamber origin that serves `/auth/session` |
+| `OPENCODE_OPENCHAMBER_CLIENT_ID` | random per process | Overrides the identifier that scopes this instance's OpenChamber client record; see below |
 | `OPENCODE_AUTO_SERVE` | `false` | Set exactly `true` to allow a local child server to start |
 | `OPENCODE_DEFAULT_PROVIDER` | unset | Default prompt provider ID |
 | `OPENCODE_DEFAULT_MODEL` | unset | Default prompt model ID; configure both defaults together |
@@ -28,7 +29,7 @@ Job records hold local operational metadata and results, independent of OpenCode
 
 [OpenChamber](https://github.com/openchamber/openchamber) proxies OpenCode under `/api` and rejects Basic auth. Point `OPENCODE_BASE_URL` at the proxy and choose one credential:
 
-- `OPENCODE_OPENCHAMBER_PASSWORD`: on first use, opencode-mcp posts the UI password to `/auth/session` and receives a trusted-device client token (7 days by default). The token is kept in memory only. When a request is rejected with 401, it signs in once more and resends that request; the rejected request never reached OpenCode, so writes are not duplicated. Repeated sign-ins reuse one client entry per host in OpenChamber's client list.
+- `OPENCODE_OPENCHAMBER_PASSWORD`: on first use, opencode-mcp posts the UI password to `/auth/session` and receives a trusted-device client token (7 days by default). The token is kept in memory only. When a request is rejected with 401, it signs in once more and resends that request; the rejected request never reached OpenCode, so writes are not duplicated. Each MCP process gets its own client entry in OpenChamber's client list, keyed by a random identifier generated at startup, so independent MCP instances on the same host (e.g. two editor windows) never replace each other's token. Set `OPENCODE_OPENCHAMBER_CLIENT_ID` to a stable value only if you deliberately want multiple processes to share one client entry.
 - `OPENCODE_SERVER_TOKEN`: a client token you minted yourself. It is not renewed; replace it when it expires or is revoked.
 
 ```bash

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createServer, type Server } from "node:http";
 import { OpenCodeClient, OpenCodeError } from "../src/client.js";
 import { ensureServer } from "../src/server-manager.js";
+import { registerEventTools } from "../src/tools/events.js";
 
 const PASSWORD = "fixture-ui-password";
 
@@ -12,6 +13,13 @@ describe("OpenChamber authentication", () => {
   let origin: string;
   let logins: any[];
   let valid: Set<string>;
+  // OpenChamber v2.4.0's actual remote-client store: minting a token for a
+  // dedupeKey that already has one revokes the previous token outright
+  // (see https://github.com/openchamber/openchamber/blob/v2.4.0/packages/web/
+  // server/lib/client-auth/remote-clients.js#L188-L200). A fixture that only
+  // adds tokens to a set (as this one used to) cannot catch a dedupeKey
+  // collision between two independent clients.
+  let tokenByDedupeKey: Map<string, string>;
   let issued: number;
   let loginStatus: number;
   let requests: Array<{ method: string; path: string; authorization?: string; body?: any }>;
@@ -19,6 +27,7 @@ describe("OpenChamber authentication", () => {
   beforeEach(async () => {
     logins = [];
     valid = new Set();
+    tokenByDedupeKey = new Map();
     issued = 0;
     loginStatus = 200;
     requests = [];
@@ -34,7 +43,10 @@ describe("OpenChamber authentication", () => {
         logins.push(body);
         if (loginStatus === 429) return send(429, { error: "Too many login attempts" }, { "retry-after": "900" });
         if (body.password !== PASSWORD) return send(401, { error: "Invalid credentials" });
+        const previous = tokenByDedupeKey.get(body.dedupeKey);
+        if (previous) valid.delete(previous);
         const clientToken = `oc_client_${++issued}`;
+        tokenByDedupeKey.set(body.dedupeKey, clientToken);
         valid.add(clientToken);
         return send(200, { authenticated: true, clientToken, client: { id: String(issued) } });
       }
@@ -45,7 +57,7 @@ describe("OpenChamber authentication", () => {
         return send(401, { error: "UI authentication required", locked: true });
       }
       if (url.pathname === "/api/global/health") return send(200, { healthy: true, version: "fixture" });
-      if (url.pathname === "/api/event") {
+      if (url.pathname === "/api/event" || url.pathname === "/api/global/event") {
         res.writeHead(200, { "content-type": "text/event-stream" });
         return res.end("event: ping\ndata: {}\n\n");
       }
@@ -97,6 +109,31 @@ describe("OpenChamber authentication", () => {
     expect(logins).toHaveLength(2);
   });
 
+  it("gives two independent clients distinct dedupeKeys so neither invalidates the other", async () => {
+    const a = openchamberClient();
+    const b = openchamberClient();
+    await a.get("/session");
+    await b.get("/session"); // against the real OpenChamber store, this used to revoke a's token
+    expect(a).not.toBe(b);
+    expect(logins).toHaveLength(2);
+    expect(logins[0].dedupeKey).not.toBe(logins[1].dedupeKey);
+    // a's token must still be valid: logging in as b did not evict it.
+    await expect(a.get("/still-valid")).resolves.toMatchObject({ ok: true });
+    expect(logins).toHaveLength(2);
+  });
+
+  it("renews both independent clients concurrently without a spurious 401", async () => {
+    const a = openchamberClient();
+    const b = openchamberClient();
+    await a.get("/session");
+    await b.get("/session");
+    valid.clear(); // both tokens expired or were revoked out of band
+    const results = await Promise.allSettled([a.get("/a"), b.get("/b")]);
+    expect(results.every((r) => r.status === "fulfilled")).toBe(true);
+    // One renewal per client; neither client's renewal evicted the other's.
+    expect(logins).toHaveLength(4);
+  });
+
   it("surfaces a 401 when the renewed token is rejected too, without looping", async () => {
     const client = openchamberClient();
     await client.get("/session");
@@ -129,10 +166,31 @@ describe("OpenChamber authentication", () => {
 
   it("authenticates event streams", async () => {
     const client = openchamberClient();
+    // Exercise subscribeSSE the same way opencode_events_poll does: an
+    // unprefixed path that relies on the client preserving `baseUrl`'s `/api`
+    // prefix, not a path with the prefix already baked in.
     const events = [];
-    for await (const event of client.subscribeSSE("/api/event")) events.push(event);
+    for await (const event of client.subscribeSSE("/event")) events.push(event);
     expect(events).toEqual([{ event: "ping", data: "{}" }]);
     expect(requests.at(-1)?.authorization).toBe("Bearer oc_client_1");
+  });
+
+  it("authenticates the events-poll tool through the OpenChamber proxy prefix", async () => {
+    const client = openchamberClient();
+    let handler: Function = () => {};
+    registerEventTools({ tool: (...args: any[]) => { handler = args.at(-1); } } as any, client);
+    const result = await handler({ durationMs: 200 });
+    expect(result.isError).toBeFalsy();
+    expect(requests.some((r) => r.path === "/api/event")).toBe(true);
+  });
+
+  it("authenticates the global events-poll tool through the OpenChamber proxy prefix", async () => {
+    const client = openchamberClient();
+    let handler: Function = () => {};
+    registerEventTools({ tool: (...args: any[]) => { handler = args.at(-1); } } as any, client);
+    const result = await handler({ durationMs: 200, scope: "global" });
+    expect(result.isError).toBeFalsy();
+    expect(requests.some((r) => r.path === "/api/global/event")).toBe(true);
   });
 
   it("authenticates the health probe", async () => {
