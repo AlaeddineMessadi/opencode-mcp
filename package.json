@@ -1,6 +1,6 @@
 {
   "name": "opencode-mcp",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "description": "MCP server for OpenCode coding workflows, durable async jobs, project resources, and explicit user input",
   "type": "module",
   "main": "dist/index.js",
@@ -56,7 +56,7 @@
   "dependencies": {
     "@modelcontextprotocol/core": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
-    "@opencode-ai/sdk": "^1.18.31",
+    "@opencode-ai/sdk": "^1.19.3",
     "zod": "^4.6.5"
   },
   "devDependencies": {

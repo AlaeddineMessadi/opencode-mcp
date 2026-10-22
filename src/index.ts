@@ -10,22 +10,30 @@ import { setModelDefaults } from "./helpers.js";
 
 async function main() {
   const baseUrl = process.env.OPENCODE_BASE_URL ?? "http://127.0.0.1:4096";
-  const username = process.env.OPENCODE_SERVER_USERNAME;
+  const username = process.env.OPENCODE_SERVER_USERNAME || "opencode";
   const password = process.env.OPENCODE_SERVER_PASSWORD;
   const autoServe = process.env.OPENCODE_AUTO_SERVE === "true";
   const profile = process.env.OPENCODE_TOOL_PROFILE ?? "full";
   if (profile !== "full" && profile !== "essential") throw new Error("OPENCODE_TOOL_PROFILE must be full or essential");
   setModelDefaults(process.env.OPENCODE_DEFAULT_PROVIDER, process.env.OPENCODE_DEFAULT_MODEL);
   registerShutdownHandlers();
-  const client = new OpenCodeClient({ baseUrl, username, password, autoServe });
-  const scope = createHash("sha256").update(JSON.stringify([baseUrl, username ?? "opencode", password ?? ""])).digest("hex");
+  // Resolve the server (and, for auto-serve, its generated password) before
+  // building the client so the first request is already authenticated.
+  let effectiveUrl = baseUrl;
+  let effectivePassword = password;
+  try {
+    const status = await ensureServer({ baseUrl, autoServe, username, password });
+    if (status.url) effectiveUrl = status.url;
+    if (status.password) effectivePassword = status.password;
+  } catch (error) { console.error(`Warning: ${error instanceof Error ? error.message : String(error)}`); }
+  const client = new OpenCodeClient({ baseUrl: effectiveUrl, username, password: effectivePassword, autoServe });
+  // Hash the configured password, not a generated auto-serve one, so durable jobs stay visible across restarts.
+  const scope = createHash("sha256").update(JSON.stringify([effectiveUrl, username, password ?? ""])).digest("hex");
   const jobs = new JobService(client, { storeRoot: process.env.OPENCODE_TASK_STORE, scope });
-  try { await ensureServer({ baseUrl, autoServe, username, password }); }
-  catch (error) { console.error(`Warning: ${error instanceof Error ? error.message : String(error)}`); }
   serveStdio(() => createServer(client, jobs, profile), {
     legacy: "serve", transport: new TaskTransport(new StdioServerTransport(), jobs),
     onerror: error => console.error("MCP transport error:", error.message),
   });
-  console.error(`opencode-mcp v3.0.0 started (profile: ${profile})`);
+  console.error(`opencode-mcp v4.0.0 started (profile: ${profile})`);
 }
 main().catch(error => { console.error("Fatal error starting opencode-mcp:", error); process.exitCode = 1; });

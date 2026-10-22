@@ -68,7 +68,7 @@ describe("Resource registration", () => {
 describe("Resource handlers", () => {
   it("config resource returns JSON from client", async () => {
     const mockClient = createMockClient(async (path) => {
-      if (path === "/config") return { theme: "dark", model: "claude-3" };
+      if (path === "/api/config") return { theme: "dark", model: "claude-3" };
       return {};
     });
     const resources = new Map<string, Function>();
@@ -120,8 +120,8 @@ describe("Resource handlers", () => {
     expect(result.contents[0].text).toContain("No VCS information available");
   });
 
-  it("health resource fetches from /global/health", async () => {
-    const getMock = vi.fn().mockResolvedValue({ version: "1.0", ok: true });
+  it("health resource fetches from /api/info", async () => {
+    const getMock = vi.fn().mockResolvedValue({ version: "2.1.2", pid: 1, urls: ["http://127.0.0.1:4096"], paths: { tmp: "/tmp" } });
     const mockClient = createMockClient(getMock as unknown as (path: string) => Promise<unknown>);
     const resources = new Map<string, Function>();
     const mockServer = {
@@ -132,7 +132,31 @@ describe("Resource handlers", () => {
     registerResources(mockServer, mockClient);
 
     const handler = resources.get("health")!;
-    await handler();
-    expect(getMock).toHaveBeenCalledWith("/global/health");
+    const result = await handler();
+    expect(getMock).toHaveBeenCalledWith("/api/info");
+    expect(result.contents[0].text).toContain("2.1.2");
+  });
+
+  it.each([
+    ["project-current", "/api/location"],
+    ["providers", "/api/provider"],
+    ["agents", "/api/agent"],
+    ["commands", "/api/command"],
+    ["vcs", "/api/vcs"],
+    ["sessions", "/api/session"],
+    ["mcp-servers", "/api/mcp"],
+    ["file-status", "/api/vcs/status"],
+  ])("%s resource reads OpenCode 2.x endpoint %s", async (name, endpoint) => {
+    const getMock = vi.fn().mockResolvedValue([]);
+    const mockClient = createMockClient(getMock as unknown as (path: string) => Promise<unknown>);
+    const resources = new Map<string, Function>();
+    const mockServer = {
+      resource: vi.fn((_n: string, _u: string, _o: unknown, handler: Function) => {
+        resources.set(_n, handler);
+      }),
+    } as unknown as McpServer;
+    registerResources(mockServer, mockClient);
+    await resources.get(name)!();
+    expect(getMock).toHaveBeenCalledWith(endpoint);
   });
 });

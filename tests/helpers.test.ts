@@ -18,108 +18,123 @@ import {
   directoryParam,
 } from "../src/helpers.js";
 
+// ─── OpenCode 2.x message fixtures ───────────────────────────────────────
+// Shapes follow components/schemas Session.Message.{User,Assistant,Idle} and
+// Session.Message.Assistant.Tool / ToolState.* from the 2.x OpenAPI spec.
+
+const tok = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } };
+
+function userMsg(id: string, text: string, created = 1) {
+  return { id, time: { created }, type: "user", text };
+}
+
+function assistantMsg(content: unknown[], extra: Record<string, unknown> = {}) {
+  return { id: "msg_a", time: { created: 2 }, type: "assistant", content, ...extra };
+}
+
+function toolPart(name: string, state: Record<string, unknown>, id = `call_${name}`) {
+  return { type: "tool", id, name, state, time: { created: 1 } };
+}
+
+const completed = (input: Record<string, unknown>, text?: string) => ({
+  status: "completed",
+  input,
+  content: [{ type: "text", text: text ?? "ok" }],
+});
+
+const failed = (input: Record<string, unknown>, message: string) => ({
+  status: "error",
+  input,
+  error: { type: "ToolError", message },
+});
+
 // ─── formatMessageResponse ───────────────────────────────────────────────
 
 describe("formatMessageResponse", () => {
-  it("shows validated JSON instead of the StructuredOutput receipt", () => {
-    const message = {
-      info: { role: "assistant", structured: { status: "ok", sum: 42 } },
-      parts: [
-        { type: "tool", tool: "StructuredOutput", state: { status: "completed", output: "Structured output captured successfully." } },
-        { type: "step-finish", cost: 0, tokens: { output: 23 } },
-      ],
-    };
-    expect(JSON.parse(formatMessageResponse(message))).toEqual({ status: "ok", sum: 42 });
-    expect(formatMessageList([message])).toContain('"sum": 42');
-    expect(formatMessageList([message])).not.toContain("Agent performed");
-  });
   it("returns empty string for null/undefined input", () => {
     expect(formatMessageResponse(null)).toBe("");
     expect(formatMessageResponse(undefined)).toBe("");
   });
 
-  it("omits verbose message info header for cleaner output", () => {
-    const result = formatMessageResponse({
-      info: { id: "msg-1", role: "assistant", createdAt: "2025-01-01" },
-      parts: [],
-    });
-    // Message header is now omitted — output should be empty for messages with no parts
-    expect(result).toBe("");
+  it("omits verbose message header for cleaner output", () => {
+    // No header is emitted — an assistant message with no content renders empty
+    expect(formatMessageResponse(assistantMsg([]))).toBe("");
   });
 
-  it("extracts text parts", () => {
-    const result = formatMessageResponse({
-      parts: [
-        { type: "text", text: "Hello world" },
-        { type: "text", text: "Second part" },
-      ],
-    });
+  it("extracts text content items", () => {
+    const result = formatMessageResponse(assistantMsg([
+      { type: "text", text: "Hello world" },
+      { type: "text", text: "Second part" },
+    ]));
     expect(result).toContain("Hello world");
     expect(result).toContain("Second part");
   });
 
-  it("extracts text from content field as fallback", () => {
-    const result = formatMessageResponse({
-      parts: [{ type: "text", content: "Fallback content" }],
-    });
-    expect(result).toContain("Fallback content");
+  it("omits reasoning content from user-facing output", () => {
+    const result = formatMessageResponse(assistantMsg([
+      { type: "reasoning", text: "internal chain of thought" },
+      { type: "text", text: "Final answer" },
+    ]));
+    expect(result).toBe("Final answer");
+    expect(result).not.toContain("chain of thought");
   });
 
-  it("formats tool-invocation parts", () => {
-    const result = formatMessageResponse({
-      parts: [
-        {
-          type: "tool-invocation",
-          toolName: "readFile",
-          input: { path: "/foo" },
-        },
-      ],
-    });
-    expect(result).toContain("[Tool: readFile]");
-    expect(result).toContain("/foo");
+  it("formats running tool parts with their status", () => {
+    const result = formatMessageResponse(assistantMsg([
+      toolPart("read", { status: "running", input: { path: "/foo" }, metadata: {} }),
+    ]));
+    expect(result).toBe("[Tool: read] running");
   });
 
-  it("formats tool-result parts with output", () => {
-    const result = formatMessageResponse({
-      parts: [
-        {
-          type: "tool-result",
-          toolName: "readFile",
-          output: "file contents here",
-        },
-      ],
-    });
-    expect(result).toContain("[Tool: readFile]");
+  it("formats completed tool parts with their text content", () => {
+    const result = formatMessageResponse(assistantMsg([
+      toolPart("read", completed({ path: "/foo" }, "file contents here")),
+    ]));
+    expect(result).toContain("[Tool: read]");
     expect(result).toContain("file contents here");
   });
 
-  it("formats tool errors", () => {
-    const result = formatMessageResponse({
-      parts: [
-        {
-          type: "tool-invocation",
-          toolName: "readFile",
-          error: "File not found",
-        },
-      ],
-    });
-    expect(result).toContain("ERROR: File not found");
+  it("truncates long completed tool content to 300 chars", () => {
+    const result = formatMessageResponse(assistantMsg([
+      toolPart("read", completed({ path: "/foo" }, "x".repeat(1000))),
+    ]));
+    expect(result).toBe(`[Tool: read] ${"x".repeat(297)}...`);
   });
 
-  it("handles unknown part types", () => {
-    const result = formatMessageResponse({
-      parts: [{ type: "custom-type", data: "something" }],
-    });
-    expect(result).toContain("[custom-type]");
+  it("formats tool errors using the structured error message", () => {
+    const result = formatMessageResponse(assistantMsg([
+      toolPart("read", failed({ path: "/foo" }, "File not found")),
+    ]));
+    expect(result).toContain("[Tool: read] ERROR: File not found");
   });
 
-  it("handles missing info gracefully and still extracts text", () => {
-    const result = formatMessageResponse({
-      info: { role: undefined, id: undefined },
-      parts: [{ type: "text", text: "hello" }],
-    });
-    // No header emitted, but text content is still extracted
-    expect(result).toContain("hello");
+  it("skips unknown content types without text", () => {
+    const result = formatMessageResponse(assistantMsg([
+      { type: "custom-type", data: "something" },
+      { type: "text", text: "visible" },
+    ]));
+    expect(result).toBe("visible");
+  });
+
+  it("formats user messages by their text", () => {
+    expect(formatMessageResponse(userMsg("msg_u", "Hi there"))).toBe("Hi there");
+  });
+
+  it("formats idle markers with their outcome", () => {
+    expect(formatMessageResponse({ id: "msg_i", time: { created: 3 }, type: "idle", outcome: "succeeded" }))
+      .toBe("Run succeeded.");
+    expect(formatMessageResponse({
+      id: "msg_i", time: { created: 3 }, type: "idle", outcome: "failed",
+      error: { type: "ProviderError", message: "boom" },
+    })).toContain("Run failed:");
+  });
+
+  it("surfaces the assistant error when there is no content", () => {
+    const result = formatMessageResponse(assistantMsg([], {
+      finish: "error",
+      error: { type: "ProviderAuthError", message: "Invalid API key", status: 401 },
+    }));
+    expect(result).toBe("Error: Invalid API key");
   });
 });
 
@@ -136,103 +151,87 @@ describe("formatMessageList", () => {
     );
   });
 
-  it("formats a list of messages with indices", () => {
+  it("formats a list of messages with type tags and ids", () => {
     const messages = [
-      {
-        info: { role: "user", id: "m1" },
-        parts: [{ type: "text", text: "Hi there" }],
-      },
-      {
-        info: { role: "assistant", id: "m2" },
-        parts: [{ type: "text", text: "Hello!" }],
-      },
+      userMsg("m1", "Hi there", 1),
+      { ...assistantMsg([{ type: "text", text: "Hello!" }]), id: "m2" },
     ];
     const result = formatMessageList(messages);
-    expect(result).toContain("Message 1 [user]");
-    expect(result).toContain("Message 2 [assistant]");
+    expect(result).toContain(`--- [user] (m1) ${new Date(1).toISOString()} ---`);
+    expect(result).toContain("--- [assistant] (m2)");
     expect(result).toContain("Hi there");
     expect(result).toContain("Hello!");
   });
 
-  it("counts tool calls when text is also present", () => {
+  it("orders messages chronologically regardless of input order", () => {
     const messages = [
-      {
-        info: { role: "assistant", id: "m1" },
-        parts: [
-          { type: "text", text: "Let me check" },
-          { type: "tool-invocation", toolName: "search" },
-          { type: "tool-result", toolName: "search" },
-        ],
-      },
+      { id: "m3", time: { created: 30 }, type: "idle", outcome: "succeeded" },
+      { ...assistantMsg([{ type: "text", text: "Answer" }]), id: "m2", time: { created: 20 } },
+      userMsg("m1", "Question", 10),
     ];
     const result = formatMessageList(messages);
+    expect(result.indexOf("Question")).toBeLessThan(result.indexOf("Answer"));
+    expect(result.indexOf("Answer")).toBeLessThan(result.indexOf("[idle] (m3)"));
+    expect(result).toContain("Run succeeded.");
+  });
+
+  it("includes the assistant model when present", () => {
+    const result = formatMessageList([
+      assistantMsg([{ type: "text", text: "Hi" }], { model: { providerID: "anthropic", id: "claude-x" } }),
+    ]);
+    expect(result).toContain("model: anthropic/claude-x");
+  });
+
+  it("counts tool calls when text is also present", () => {
+    const result = formatMessageList([
+      assistantMsg([
+        { type: "text", text: "Let me check" },
+        toolPart("grep", completed({ pattern: "x" }), "c1"),
+        toolPart("grep", completed({ pattern: "y" }), "c2"),
+      ]),
+    ]);
     expect(result).toContain("2 tool call(s)");
     expect(result).toContain("Let me check");
   });
 
   it("shows tool summaries when text is empty (the empty-message bug)", () => {
-    const messages = [
-      {
-        info: { role: "assistant", id: "m1" },
-        parts: [
-          { type: "text", text: "" },
-          { type: "tool-invocation", toolName: "Write", input: { path: "/src/App.tsx" } },
-          { type: "tool-result", toolName: "Write" },
-        ],
-      },
-    ];
-    const result = formatMessageList(messages);
+    const result = formatMessageList([
+      assistantMsg([
+        { type: "text", text: "" },
+        toolPart("write", completed({ path: "/src/App.tsx" }), "c1"),
+        toolPart("read", completed({ path: "/src/main.tsx" }), "c2"),
+      ]),
+    ]);
     expect(result).toContain("Agent performed 2 action(s)");
-    expect(result).toContain("Write: /src/App.tsx");
+    expect(result).toContain("write: /src/App.tsx");
   });
 
   it("shows tool summaries when there are no text parts at all", () => {
-    const messages = [
-      {
-        info: { role: "assistant", id: "m1" },
-        parts: [
-          { type: "tool-invocation", toolName: "Bash", input: { command: "npm install" } },
-        ],
-      },
-    ];
-    const result = formatMessageList(messages);
+    const result = formatMessageList([
+      assistantMsg([toolPart("bash", completed({ command: "npm install" }))]),
+    ]);
     expect(result).toContain("Agent performed 1 action(s)");
-    expect(result).toContain("Bash: npm install");
+    expect(result).toContain("bash: npm install");
   });
 
-  it("shows (no content) when parts array is empty", () => {
-    const messages = [
-      { info: { role: "assistant", id: "m1" }, parts: [] },
-    ];
-    const result = formatMessageList(messages);
-    expect(result).toContain("(no content)");
+  it("shows (no content) when content array is empty", () => {
+    expect(formatMessageList([assistantMsg([])])).toContain("(no content)");
   });
 
   it("truncates long tool input hints to 80 chars", () => {
     const longPath = "/very/long/path/that/goes/on/and/on/and/on/and/repeats/many/times/so/it/exceeds/eighty/chars.tsx";
-    const messages = [
-      {
-        info: { role: "assistant", id: "m1" },
-        parts: [
-          { type: "tool-invocation", toolName: "Write", input: { path: longPath } },
-        ],
-      },
-    ];
-    const result = formatMessageList(messages);
+    const result = formatMessageList([
+      assistantMsg([toolPart("write", completed({ path: longPath }))]),
+    ]);
     expect(result).toContain("...");
     expect(result.length).toBeLessThan(longPath.length + 200);
   });
 
   it("caps tool summaries at 10 and shows overflow count", () => {
-    const toolParts = Array.from({ length: 15 }, (_, i) => ({
-      type: "tool-invocation",
-      toolName: `Tool${i}`,
-      input: { path: `/file${i}.ts` },
-    }));
-    const messages = [
-      { info: { role: "assistant", id: "m1" }, parts: toolParts },
-    ];
-    const result = formatMessageList(messages);
+    const parts = Array.from({ length: 15 }, (_, i) =>
+      toolPart(`Tool${i}`, completed({ path: `/file${i}.ts` })),
+    );
+    const result = formatMessageList([assistantMsg(parts)]);
     expect(result).toContain("Agent performed 15 action(s)");
     expect(result).toContain("... and 5 more");
     expect(result).toContain("Tool0");
@@ -241,47 +240,40 @@ describe("formatMessageList", () => {
   });
 
   it("marks tool errors in summaries", () => {
-    const messages = [
-      {
-        info: { role: "assistant", id: "m1" },
-        parts: [
-          { type: "tool-result", toolName: "Bash", error: "command not found" },
-        ],
-      },
-    ];
-    const result = formatMessageList(messages);
-    expect(result).toContain("Bash");
-    expect(result).toContain("ERROR");
+    const result = formatMessageList([
+      assistantMsg([toolPart("bash", failed({ command: "foo" }, "command not found"))]),
+    ]);
+    expect(result).toContain("bash: foo ERROR");
   });
 
-  it("appends cost metadata from step-finish parts", () => {
-    const messages = [
-      {
-        info: { role: "assistant", id: "m1" },
-        parts: [
-          { type: "text", text: "Done!" },
-          { type: "step-finish", cost: 0.0023, tokens: { input: 1500, output: 200 } },
-        ],
-      },
-    ];
-    const result = formatMessageList(messages);
+  it("appends cost and token metadata from the assistant message", () => {
+    const result = formatMessageList([
+      assistantMsg([{ type: "text", text: "Done!" }], {
+        cost: 0.0023,
+        tokens: { input: 1500, output: 200, reasoning: 0, cache: { read: 100, write: 20 } },
+      }),
+    ]);
     expect(result).toContain("cost: $0.0023");
-    expect(result).toContain("tokens: 1500 in, 200 out");
+    expect(result).toContain("tokens: 1500 in, 200 out, 120 cache");
+  });
+
+  it("omits cost metadata when cost and tokens are zero", () => {
+    const result = formatMessageList([
+      assistantMsg([{ type: "text", text: "Done!" }], { cost: 0, tokens: tok }),
+    ]);
+    expect(result).not.toContain("cost:");
+    expect(result).not.toContain("tokens:");
   });
 
   it("prefers command/query/url hints from tool input", () => {
-    const messages = [
-      {
-        info: { role: "assistant", id: "m1" },
-        parts: [
-          { type: "tool-invocation", toolName: "Search", input: { query: "todo context" } },
-          { type: "tool-invocation", toolName: "Fetch", input: { url: "https://example.com" } },
-        ],
-      },
-    ];
-    const result = formatMessageList(messages);
-    expect(result).toContain("Search: todo context");
-    expect(result).toContain("Fetch: https://example.com");
+    const result = formatMessageList([
+      assistantMsg([
+        toolPart("websearch", completed({ query: "todo context" }), "c1"),
+        toolPart("webfetch", completed({ url: "https://example.com" }), "c2"),
+      ]),
+    ]);
+    expect(result).toContain("websearch: todo context");
+    expect(result).toContain("webfetch: https://example.com");
   });
 });
 
@@ -343,15 +335,21 @@ describe("formatSessionList", () => {
     );
   });
 
-  it("formats sessions with title, id, and date", () => {
+  it("formats sessions with title, id, and created time", () => {
+    const created = Date.UTC(2025, 0, 1);
     const sessions = [
-      { id: "s1", title: "Fix bug", createdAt: "2025-01-01" },
-      { id: "s2", title: "Add feature", createdAt: "2025-01-02" },
+      { id: "s1", title: "Fix bug", time: { created, updated: created } },
+      { id: "s2", title: "Add feature", time: { created: created + 1, updated: created + 1 } },
     ];
     const result = formatSessionList(sessions);
     expect(result).toContain("Fix bug [s1]");
     expect(result).toContain("Add feature [s2]");
-    expect(result).toContain("created 2025-01-01");
+    expect(result).toContain("created 2025-01-01T00:00:00.000Z");
+  });
+
+  it("shows the last run outcome", () => {
+    const result = formatSessionList([{ id: "s1", title: "Done", outcome: "failed" }]);
+    expect(result).toBe("- Done [s1] [failed]");
   });
 
   it("shows parent relationship", () => {
@@ -384,128 +382,138 @@ describe("analyzeMessageResponse", () => {
     expect(result.warning).toContain("API key");
   });
 
-  it("detects response with empty parts array as empty", () => {
-    const result = analyzeMessageResponse({ parts: [] });
+  it("detects response with empty content array as empty", () => {
+    const result = analyzeMessageResponse(assistantMsg([]));
     expect(result.isEmpty).toBe(true);
     expect(result.warning).toContain("no text content");
   });
 
   it("detects response with only whitespace text as empty", () => {
-    const result = analyzeMessageResponse({
-      parts: [{ type: "text", text: "   " }],
-    });
+    const result = analyzeMessageResponse(assistantMsg([{ type: "text", text: "   " }]));
     expect(result.isEmpty).toBe(true);
     expect(result.warning).toContain("no text content");
   });
 
-  it("recognizes legacy tool-only activity", () => {
-    const result = analyzeMessageResponse({
-      parts: [{ type: "tool-invocation", toolName: "something" }],
-    });
+  it("detects reasoning-only responses as empty", () => {
+    const result = analyzeMessageResponse(assistantMsg([{ type: "reasoning", text: "thinking" }]));
+    expect(result.isEmpty).toBe(true);
+  });
+
+  it("recognizes tool-only activity", () => {
+    const result = analyzeMessageResponse(assistantMsg([
+      toolPart("bash", { status: "running", input: { command: "ls" }, metadata: {} }),
+    ]));
     expect(result.isEmpty).toBe(false);
     expect(result.warning).toBeNull();
   });
 
-  it("detects error parts with .error field", () => {
-    const result = analyzeMessageResponse({
-      parts: [{ type: "tool-result", error: "Unauthorized" }],
-    });
+  it("detects the assistant-level structured error", () => {
+    const result = analyzeMessageResponse(assistantMsg([], {
+      finish: "error",
+      error: { type: "ProviderAuthError", message: "Unauthorized", status: 401 },
+    }));
     expect(result.hasError).toBe(true);
     expect(result.isEmpty).toBe(false);
     expect(result.warning).toContain("Unauthorized");
     expect(result.warning).not.toContain("verify your API key");
   });
 
-  it("does not treat error keywords in prose as tool failure", () => {
+  it("detects failed idle markers", () => {
     const result = analyzeMessageResponse({
-      parts: [{ type: "text", text: "Error: invalid key provided" }],
+      id: "msg_i", time: { created: 3 }, type: "idle", outcome: "failed",
+      error: { type: "ProviderError", message: "overloaded" },
     });
+    expect(result.hasError).toBe(true);
+    expect(result.warning).toContain("overloaded");
+  });
+
+  it("does not treat succeeded idle markers as errors", () => {
+    const result = analyzeMessageResponse({ id: "msg_i", time: { created: 3 }, type: "idle", outcome: "succeeded" });
+    expect(result.hasError).toBe(false);
+  });
+
+  it("does not treat error keywords in prose as tool failure", () => {
+    const result = analyzeMessageResponse(assistantMsg([{ type: "text", text: "Error: invalid key provided" }]));
     expect(result.hasError).toBe(false);
     expect(result.warning).toBeNull();
   });
 
   it("preserves explanations of unauthorized requests as content", () => {
-    const result = analyzeMessageResponse({
-      parts: [{ type: "text", text: "Request unauthorized by provider" }],
-    });
+    const result = analyzeMessageResponse(assistantMsg([{ type: "text", text: "Request unauthorized by provider" }]));
     expect(result.hasError).toBe(false);
   });
 
   it("returns no warning for valid response with text", () => {
-    const result = analyzeMessageResponse({
-      parts: [{ type: "text", text: "Hello, world!" }],
-    });
+    const result = analyzeMessageResponse(assistantMsg([{ type: "text", text: "Hello, world!" }]));
     expect(result.isEmpty).toBe(false);
     expect(result.hasError).toBe(false);
     expect(result.warning).toBeNull();
   });
 
-  it("returns no warning for response with mixed parts including text", () => {
-    const result = analyzeMessageResponse({
-      info: { id: "m1", role: "assistant" },
-      parts: [
-        { type: "text", text: "Let me check that." },
-        { type: "tool-invocation", toolName: "readFile" },
-      ],
-    });
+  it("returns no warning for response with mixed content including text", () => {
+    const result = analyzeMessageResponse(assistantMsg([
+      { type: "text", text: "Let me check that." },
+      toolPart("read", completed({ path: "/foo" })),
+    ]));
     expect(result.isEmpty).toBe(false);
     expect(result.hasError).toBe(false);
     expect(result.warning).toBeNull();
   });
 
-  it("handles response with no parts field", () => {
-    const result = analyzeMessageResponse({ info: { id: "m1" } });
+  it("handles response with no content field", () => {
+    const result = analyzeMessageResponse({ id: "m1", time: { created: 1 }, type: "assistant" });
     expect(result.isEmpty).toBe(true);
     expect(result.warning).toContain("no text content");
+  });
+
+  it("treats user messages with text as non-empty", () => {
+    expect(analyzeMessageResponse(userMsg("m1", "hi")).isEmpty).toBe(false);
   });
 });
 
 // ─── isProviderConfigured ─────────────────────────────────────────────────
 
 describe("isProviderConfigured", () => {
-  it("returns true for source=env", () => {
-    expect(isProviderConfigured({ id: "huggingface", source: "env" })).toBe(true);
+  const provider = (id: string, extra: Record<string, unknown> = {}) => ({
+    id, name: id, activation: "auto", package: "@ai-sdk/openai-compatible", ...extra,
+  });
+  const credential = (integrationID: string, active: boolean) => ({
+    id: `cred_${integrationID}`, integrationID, label: "default", active, value: { type: "key", key: "x" },
   });
 
-  it("returns true for source=config", () => {
-    expect(isProviderConfigured({ id: "google", source: "config" })).toBe(true);
+  it("returns true when provider settings carry a non-empty apiKey", () => {
+    expect(isProviderConfigured(provider("opencode", { settings: { apiKey: "public" } }))).toBe(true);
   });
 
-  it("returns true for source=api", () => {
-    expect(isProviderConfigured({ id: "zai-coding", source: "api" })).toBe(true);
+  it("returns false when provider settings have an empty apiKey", () => {
+    expect(isProviderConfigured(provider("deepseek", { settings: { apiKey: "" } }))).toBe(false);
   });
 
-  it("returns true for source=custom with non-empty apiKey", () => {
-    expect(isProviderConfigured({ id: "opencode", source: "custom", options: { apiKey: "public" } })).toBe(true);
+  it("returns false with no settings and no credentials", () => {
+    expect(isProviderConfigured(provider("groq"))).toBe(false);
   });
 
-  it("returns true for anthropic with OAuth headers (heuristic)", () => {
-    expect(isProviderConfigured({
-      id: "anthropic",
-      source: "custom",
-      options: { apiKey: "", headers: { "anthropic-beta": "test" } },
-    })).toBe(true);
+  it("returns true when an active credential matches the integrationID", () => {
+    expect(isProviderConfigured(
+      provider("anthropic", { integrationID: "anthropic-oauth" }),
+      [credential("anthropic-oauth", true)],
+    )).toBe(true);
   });
 
-  it("returns false for source=custom with empty options", () => {
-    expect(isProviderConfigured({ id: "groq", source: "custom", options: {} })).toBe(false);
+  it("returns true when an active credential matches the provider id", () => {
+    expect(isProviderConfigured(provider("google"), [credential("google", true)])).toBe(true);
   });
 
-  it("returns false for source=custom with only empty apiKey", () => {
-    expect(isProviderConfigured({ id: "deepseek", source: "custom", options: { apiKey: "" } })).toBe(false);
+  it("returns false when the matching credential is inactive", () => {
+    expect(isProviderConfigured(provider("google"), [credential("google", false)])).toBe(false);
   });
 
-  it("returns false when source is undefined", () => {
-    expect(isProviderConfigured({ id: "unknown" })).toBe(false);
+  it("returns false when credentials belong to another integration", () => {
+    expect(isProviderConfigured(provider("openai"), [credential("anthropic", true)])).toBe(false);
   });
 
-  it("returns false for non-anthropic provider with extra options but no apiKey", () => {
-    // The anthropic heuristic should NOT apply to other providers
-    expect(isProviderConfigured({
-      id: "openai",
-      source: "custom",
-      options: { apiKey: "", headers: { "some-header": "value" } },
-    })).toBe(false);
+  it("returns false when the provider has no id", () => {
+    expect(isProviderConfigured({}, [credential("unknown", true)])).toBe(false);
   });
 });
 
@@ -1040,19 +1048,21 @@ describe("Issue #13: cross-platform server paths", () => {
 });
 
 
-describe("OpenCode 1.18 response formats", () => {
-  const message = { info: { role: "assistant", id: "message" }, parts: [
-    { type: "tool", tool: "bash", state: { status: "completed", input: { command: "pwd" }, output: "/project" } },
-  ] };
-  it("formats current tool parts and does not misdiagnose them as missing credentials", () => {
+describe("OpenCode 2.x response formats", () => {
+  const message = assistantMsg([
+    toolPart("bash", completed({ command: "pwd" }, "/project")),
+  ]);
+  it("formats completed tool parts and does not misdiagnose them as missing credentials", () => {
     expect(formatMessageResponse(message)).toContain("[Tool: bash] /project");
     expect(formatMessageList([message])).toContain("bash: pwd");
     expect(analyzeMessageResponse(message)).toEqual({ isEmpty: false, hasError: false, warning: null });
   });
-  it("reports errors nested in current tool state", () => {
-    const failed = { parts: [{ type: "tool", tool: "bash", state: { status: "error", error: "command failed" } }] };
-    expect(formatMessageResponse(failed)).toContain("ERROR: command failed");
-    expect(analyzeMessageResponse(failed).hasError).toBe(true);
+  it("reports structured errors nested in tool state", () => {
+    const failedMsg = assistantMsg([toolPart("bash", failed({ command: "x" }, "command failed"))]);
+    expect(formatMessageResponse(failedMsg)).toContain("ERROR: command failed");
+    const analysis = analyzeMessageResponse(failedMsg);
+    expect(analysis.hasError).toBe(true);
+    expect(analysis.warning).toContain("command failed");
   });
   it("includes the current patch field when formatting session diffs", () => {
     expect(formatDiffResponse([{ file: "app.ts", patch: "@@ -1 +1 @@\n-old\n+new", additions: 1, deletions: 1 }])).toContain("+new");

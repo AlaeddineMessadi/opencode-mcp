@@ -1,6 +1,6 @@
 # Resources Reference
 
-Resources expose project data through MCP reads. They are independent of tool calls and return valid JSON, including when large data must be shortened. This server does **not** implement resource subscriptions or change notifications; read a resource again to refresh it.
+Resources expose project data through MCP reads. URIs are unchanged in 4.0.0; their data comes from the OpenCode 2.x `/api/*` endpoints, so payload shapes follow OpenCode 2.x. They are independent of tool calls and return valid JSON, including when large data must be shortened. This server does **not** implement resource subscriptions or change notifications; read a resource again to refresh it.
 
 ## Static Resources
 
@@ -8,12 +8,12 @@ These URIs read the OpenCode server's default project. Reading a project-scoped 
 
 | URI | Data |
 |---|---|
-| `opencode://project/current` | Current project |
+| `opencode://project/current` | Current location (directory and project) |
 | `opencode://config` | Configuration with sensitive fields redacted |
 | `opencode://providers` | Providers and models with sensitive fields redacted |
 | `opencode://agents` | Available agents |
 | `opencode://commands` | Available commands |
-| `opencode://health` | Server health and version |
+| `opencode://health` | Server info and version from `GET /api/info` |
 | `opencode://vcs` | Version control information returned by OpenCode |
 | `opencode://sessions` | Sessions in the default project |
 | `opencode://mcp-servers` | Configured MCP server status |
@@ -25,7 +25,7 @@ Use these templates to select a different project without changing server defaul
 
 | URI template | Data |
 |---|---|
-| `opencode://projects/{directory}/current` | Project metadata |
+| `opencode://projects/{directory}/current` | Location and project metadata |
 | `opencode://projects/{directory}/sessions` | Project sessions |
 | `opencode://projects/{directory}/sessions/{sessionId}` | One session |
 | `opencode://projects/{directory}/sessions/{sessionId}/messages` | Session messages |

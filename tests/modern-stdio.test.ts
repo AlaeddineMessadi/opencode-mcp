@@ -16,7 +16,9 @@ const metadata = {
     extensions: { "io.modelcontextprotocol/tasks": {} }, elicitation: { form: {} },
   },
 };
-interface Session { id: string; messageID?: string; prompt?: string; state: "busy" | "idle"; complete?: boolean; }
+interface Session { id: string; messageID?: string; prompt?: string; state: "busy" | "idle"; complete?: boolean; interrupted?: boolean; }
+const password = "fixture-password";
+const authorization = "Basic " + Buffer.from(`opencode:${password}`).toString("base64");
 let http: Server;
 let root: string;
 let env: Record<string, string>;
@@ -26,6 +28,20 @@ let replies: number;
 const children: ChildProcessWithoutNullStreams[] = [];
 const clients: LegacyClient[] = [];
 
+/** OpenCode 2.x Session.Message.Info list for a session, newest-first like the real server. */
+function messagesFor(session: Session) {
+  const messages: Record<string, unknown>[] = [];
+  if (session.messageID) messages.push({ id: session.messageID, type: "user", text: session.prompt, time: { created: 1 } });
+  if (session.complete) {
+    messages.push({ id: `msg_assistant_${session.id}`, type: "assistant", agent: "build", model: { id: "fixture", providerID: "fixture" },
+      time: { created: 2, completed: 3 }, finish: "stop", content: [{ type: "text", text: "Fixture task completed." }] });
+    messages.push({ id: `msg_idle_${session.id}`, type: "idle", outcome: "succeeded", time: { created: 4 } });
+  } else if (session.interrupted) {
+    messages.push({ id: `msg_idle_${session.id}`, type: "idle", outcome: "interrupted", time: { created: 4 } });
+  }
+  return messages.reverse();
+}
+
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "opencode-modern-stdio-"));
   sessions = new Map(); aborts = 0; replies = 0;
@@ -34,49 +50,59 @@ beforeEach(async () => {
     for await (const chunk of req) text += chunk;
     const body = text ? JSON.parse(text) : {};
     const path = new URL(req.url!, "http://fixture").pathname;
-    const json = (value: unknown) => { res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(value)); };
-    if (path === "/global/health") { json({ healthy: true, version: "fixture" }); return; }
-    if (path === "/session" && req.method === "POST") {
-      const session: Session = { id: `session_${sessions.size + 1}`, state: "idle" };
-      sessions.set(session.id, session); json({ id: session.id }); return;
+    const json = (value: unknown, status = 200) => { res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(value)); };
+    const location = { directory: root };
+    // OpenCode 2.x enforces HTTP Basic auth on every route.
+    if (req.headers.authorization !== authorization) { json({ _tag: "UnauthorizedError", message: "Unauthorized" }, 401); return; }
+    if (path === "/api/info") { json({ version: "2.1.2", pid: process.pid, urls: ["http://fixture"], paths: { tmp: tmpdir() } }); return; }
+    if (path === "/api/session" && req.method === "POST") {
+      const session: Session = { id: `ses_fixture${sessions.size + 1}`, state: "idle" };
+      sessions.set(session.id, session);
+      json({ data: { id: session.id, projectID: "fixture", cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        time: { created: 1, updated: 1 }, title: body.title, model: body.model, location: body.location ?? location } });
+      return;
     }
-    if (path === "/session/status") { json(Object.fromEntries([...sessions.values()].map((session) => [session.id, { type: session.state }]))); return; }
-    if (path === "/question") { json([]); return; }
-    if (path === "/permission") {
-      json([...sessions.values()].filter((session) => session.prompt === "ask permission" && !session.complete).map((session) => ({
-        id: `permission_${session.id}`, sessionID: session.id, permission: "edit", patterns: ["src/fixture.ts"], always: [], metadata: {},
-      }))); return;
+    if (path === "/api/session/active") {
+      json({ data: Object.fromEntries([...sessions.values()].filter((s) => s.state === "busy").map((s) => [s.id, { type: "running" }])) });
+      return;
     }
-    if (path.startsWith("/permission/") && path.endsWith("/reply")) {
-      const session = sessions.get(path.split("/")[2].replace("permission_", ""))!;
+    if (path === "/api/form") { json({ location, data: [] }); return; }
+    if (path === "/api/permission/request") {
+      json({ location, data: [...sessions.values()].filter((s) => s.prompt === "ask permission" && !s.complete).map((s) => ({
+        id: `per_${s.id}`, sessionID: s.id, action: "edit", resources: ["src/fixture.ts"], save: [], metadata: {},
+      })) });
+      return;
+    }
+    const parts = path.split("/");
+    const session = parts[1] === "api" && parts[2] === "session" ? sessions.get(parts[3]) : undefined;
+    if (!session) { json({ _tag: "SessionNotFoundError", message: "unknown fixture route" }, 404); return; }
+    if (parts[4] === "permission" && parts[6] === "reply" && req.method === "POST") {
+      if (body.decision !== "once") { json({ _tag: "InvalidRequestError", message: "unexpected decision" }, 400); return; }
       replies++; session.complete = true; session.state = "idle";
-      json(true); return;
-    }
-    const session = sessions.get(path.split("/")[2]);
-    if (!session) { res.writeHead(404, { "content-type": "application/json" }).end('{"error":"unknown fixture route"}'); return; }
-    if (path.endsWith("/prompt_async")) {
-      session.messageID = body.messageID; session.prompt = body.parts[0].text;
-      session.complete = session.prompt !== "hold" && session.prompt !== "ask permission";
-      session.state = session.complete ? "idle" : "busy";
       res.writeHead(204).end(); return;
     }
-    if (path.endsWith("/abort")) { aborts++; session.state = "idle"; json(true); return; }
-    if (path.endsWith("/message")) {
-      const messages = session.messageID ? [{ info: { id: session.messageID, role: "user", time: { created: 1 } }, parts: [] }] : [];
-      if (session.complete) messages.push({ info: {
-        id: `assistant_${session.id}`, role: "assistant", parentID: session.messageID,
-        time: { created: 2, completed: 3 }, finish: "stop", structured: { fixture: true },
-      }, parts: [{ type: "text", text: "Fixture task completed." }] } as any);
-      json(messages); return;
+    if (parts[4] === "prompt" && req.method === "POST") {
+      session.messageID = body.id; session.prompt = body.text;
+      session.complete = session.prompt !== "hold" && session.prompt !== "ask permission";
+      session.state = session.complete ? "idle" : "busy";
+      json({ data: { id: body.id, sessionID: session.id, type: "user", time: { created: 1 }, payload: { text: body.text }, delivery: "queued" } });
+      return;
     }
-    if (path.endsWith("/todo")) { json([]); return; }
-    json({ id: session.id, title: "Fixture session", summary: { files: 0 } });
+    if (parts[4] === "interrupt") { aborts++; session.state = "idle"; session.interrupted = true; json({ interrupted: true }); return; }
+    if (parts[4] === "message") { json({ data: messagesFor(session), cursor: { previous: null, next: null } }); return; }
+    if (parts.length === 4) {
+      json({ data: { id: session.id, projectID: "fixture", cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        time: { created: 1, updated: 1 }, title: "Fixture session", location } });
+      return;
+    }
+    json({ _tag: "NotFound", message: "unknown fixture route" }, 404);
   });
   await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
   const base = `http://127.0.0.1:${(http.address() as { port: number }).port}`;
   env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  delete env.OPENCODE_SERVER_USERNAME;
   Object.assign(env, { OPENCODE_BASE_URL: base, OPENCODE_AUTO_SERVE: "false", OPENCODE_TASK_STORE: root,
-    OPENCODE_SERVER_USERNAME: "", OPENCODE_SERVER_PASSWORD: "", OPENCODE_TOOL_PROFILE: "full",
+    OPENCODE_SERVER_PASSWORD: password, OPENCODE_TOOL_PROFILE: "full",
     OPENCODE_DEFAULT_PROVIDER: "fixture", OPENCODE_DEFAULT_MODEL: "fixture" });
 });
 
@@ -143,7 +169,9 @@ describe("July 2026 stdio interoperability", () => {
     const second = rawConnection();
     const get = await second.request("tasks/get", { taskId: started.result.taskId });
     expect(get.error).toBeUndefined();
-    expect(get.result).toMatchObject({ resultType: "complete", status: "completed", result: { resultType: "complete", structuredContent: { result: { fixture: true } } } });
+    expect(get.result).toMatchObject({ resultType: "complete", status: "completed", result: { resultType: "complete",
+      structuredContent: { status: "completed", result: { type: "assistant", id: expect.stringMatching(/^msg_assistant_/) } } } });
+    expect(get.result.result.content[0].text).toContain("Fixture task completed.");
     expect(sessions.size).toBe(1);
   });
 
@@ -155,7 +183,8 @@ describe("July 2026 stdio interoperability", () => {
     const get = await connection.request("tasks/get", { taskId });
     expect(get.result.status).toBe("input_required");
     const key = Object.keys(get.result.inputRequests)[0];
-    expect(key).toBe("permission:permission_session_1");
+    expect(key).toBe("permission:per_ses_fixture1");
+    expect(get.result.inputRequests[key].params.message).toContain("edit");
     expect(replies).toBe(0);
     const updated = await connection.request("tasks/update", { taskId, inputResponses: {
       [key]: { action: "accept", content: { decision: "once" } },
@@ -230,6 +259,6 @@ describe("July 2026 stdio interoperability", () => {
     expect(jobId).toMatch(/^job_/);
     const finished = await legacy.callTool({ name: "opencode_job_get", arguments: { jobId } });
     expect(finished.isError).not.toBe(true);
-    expect(finished.structuredContent).toMatchObject({ status: "completed", result: { fixture: true } });
+    expect(finished.structuredContent).toMatchObject({ status: "completed", result: { type: "assistant", finish: "stop" } });
   });
 });

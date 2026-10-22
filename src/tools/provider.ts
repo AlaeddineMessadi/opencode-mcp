@@ -1,7 +1,21 @@
 import { z } from "zod";
 import { McpServer } from "../mcp-server.js";
 import { OpenCodeClient } from "../client.js";
-import { toolJson, toolError, toolResult, directoryParam, isProviderConfigured } from "../helpers.js";
+import { toolJson, toolError, toolResult, directoryParam } from "../helpers.js";
+
+/**
+ * A v2 provider is usable when an active credential exists for its integration
+ * or its settings carry an API key.
+ */
+function providerHasCredential(
+  provider: Record<string, unknown>,
+  credentials: Array<Record<string, unknown>>,
+): boolean {
+  const integrationID = typeof provider.integrationID === "string" ? provider.integrationID : provider.id;
+  if (credentials.some((c) => c.active === true && (c.integrationID === integrationID || c.integrationID === provider.id))) return true;
+  const settings = provider.settings as Record<string, unknown> | undefined;
+  return typeof settings?.apiKey === "string" && settings.apiKey.length > 0;
+}
 
 export function registerProviderTools(
   server: McpServer,
@@ -9,59 +23,44 @@ export function registerProviderTools(
 ) {
   server.tool(
     "opencode_provider_list",
-    "List all configured providers with their connection status. Returns a compact summary — use opencode_provider_models to see models for a specific provider.",
+    "List all providers with their configuration status. Returns a compact summary — use opencode_provider_models to see models for a specific provider.",
     {
       directory: directoryParam,
     },
     async ({ directory }) => {
       try {
-        const raw = await client.get("/provider", undefined, directory);
-        const providers = (
-          raw && typeof raw === "object" && "all" in (raw as Record<string, unknown>)
-            ? (raw as Record<string, unknown>).all
-            : raw
-        ) as Array<Record<string, unknown>>;
+        const [providersRaw, credentialsRaw] = await Promise.all([
+          client.get("/api/provider", undefined, directory).catch(() => null),
+          client.get("/api/credential", undefined, directory).catch(() => null),
+        ]);
+        const providers = (Array.isArray(providersRaw) ? providersRaw : []) as Array<Record<string, unknown>>;
+        const credentials = (Array.isArray(credentialsRaw) ? credentialsRaw : []) as Array<Record<string, unknown>>;
 
-        if (!Array.isArray(providers) || providers.length === 0) {
+        if (providers.length === 0) {
           return toolResult("No providers configured.");
         }
 
-        const countModels = (p: Record<string, unknown>) => {
-          const m = p.models;
-          return Array.isArray(m) ? m.length : m && typeof m === "object" ? Object.keys(m).length : 0;
-        };
-
-        const configured = providers.filter(isProviderConfigured);
-        const unconfigured = providers.filter((p) => !isProviderConfigured(p));
+        const configured = providers.filter((p) => providerHasCredential(p, credentials));
+        const unconfigured = providers.filter((p) => !providerHasCredential(p, credentials));
 
         const lines: string[] = [];
-
         if (configured.length > 0) {
           lines.push("**Configured:**");
           for (const p of configured) {
-            const id = p.id ?? p.name ?? "?";
-            const mc = countModels(p);
-            const envVars = Array.isArray(p.env) ? ` (via ${(p.env as string[]).join(", ")})` : "";
-            lines.push(`- ${id}: ${mc} model${mc !== 1 ? "s" : ""}${envVars}`);
+            const activation = typeof p.activation === "string" ? ` [${p.activation}]` : "";
+            lines.push(`- ${p.id}${activation}`);
           }
         } else {
-          lines.push("**No providers configured.** Use `opencode_auth_set` or set environment variables.");
+          lines.push("**No providers configured.** Use `opencode_auth_set` or OAuth via `opencode_provider_oauth_authorize`.");
         }
 
         if (unconfigured.length > 0) {
           lines.push(`\n**Not configured:** ${unconfigured.length} more providers available`);
-          // Show up to 5 popular ones
-          const popularIds = new Set(["anthropic", "openai", "google", "openrouter", "groq", "deepseek", "mistral", "huggingface"]);
+          const popularIds = new Set(["anthropic", "openai", "google", "openrouter", "groq", "deepseek", "mistral"]);
           const popular = unconfigured.filter((p) => popularIds.has(p.id as string)).slice(0, 5);
-          if (popular.length > 0) {
-            for (const p of popular) {
-              const id = p.id ?? "?";
-              const mc = countModels(p);
-              lines.push(`- ${id}: ${mc} model${mc !== 1 ? "s" : ""}`);
-            }
-            const rest = unconfigured.length - popular.length;
-            if (rest > 0) lines.push(`- ... and ${rest} more`);
-          }
+          for (const p of popular) lines.push(`- ${p.id}`);
+          const rest = unconfigured.length - popular.length;
+          if (rest > 0) lines.push(`- ... and ${rest} more`);
         }
 
         return toolResult(
@@ -88,23 +87,13 @@ export function registerProviderTools(
     },
     async ({ providerId, limit, directory }) => {
       try {
-        const raw = await client.get("/provider", undefined, directory);
-        const providers = (
-          raw && typeof raw === "object" && "all" in (raw as Record<string, unknown>)
-            ? (raw as Record<string, unknown>).all
-            : raw
-        ) as Array<Record<string, unknown>>;
-
-        if (!Array.isArray(providers)) {
-          return toolError("Unexpected provider response format.");
-        }
-
-        const provider = providers.find(
-          (p) => (p.id ?? p.name) === providerId,
-        );
-
-        if (!provider) {
-          const allIds = providers.map((p) => p.id ?? p.name);
+        const [modelsRaw, providersRaw] = await Promise.all([
+          client.get("/api/model", undefined, directory),
+          client.get("/api/provider", undefined, directory).catch(() => null),
+        ]);
+        const providers = (Array.isArray(providersRaw) ? providersRaw : []) as Array<Record<string, unknown>>;
+        if (!providers.some((p) => p.id === providerId)) {
+          const allIds = providers.map((p) => p.id);
           const shown = allIds.slice(0, 10);
           const rest = allIds.length - shown.length;
           const available = shown.join(", ") + (rest > 0 ? ` ... and ${rest} more` : "");
@@ -114,34 +103,25 @@ export function registerProviderTools(
           );
         }
 
-        const configured = isProviderConfigured(provider);
-        const rawModels = provider.models;
-        const modelList: Array<Record<string, unknown>> = Array.isArray(rawModels)
-          ? rawModels
-          : rawModels && typeof rawModels === "object"
-            ? Object.values(rawModels as Record<string, unknown>)
-            : [];
-
+        const models = (Array.isArray(modelsRaw) ? modelsRaw : []) as Array<Record<string, unknown>>;
+        const modelList = models.filter((m) => m.providerID === providerId);
         if (modelList.length === 0) {
-          return toolResult(
-            `Provider "${providerId}" (${configured ? "configured" : "NOT CONFIGURED"}) has no models available.`,
-          );
+          return toolResult(`Provider "${providerId}" has no models available.`);
         }
 
         const maxItems = limit === 0 ? modelList.length : (limit ?? 30);
         const shown = modelList.slice(0, maxItems);
-        const lines = shown.map((m: Record<string, unknown>) => {
-          const id = m.id ?? m.name ?? "?";
+        const lines = shown.map((m) => {
+          const id = m.id ?? m.modelID ?? "?";
           const name = m.name && m.name !== m.id ? ` — ${m.name}` : "";
           return `- ${id}${name}`;
         });
-
         const truncNote = modelList.length > maxItems
           ? `\n\n... and ${modelList.length - maxItems} more. Use \`limit: 0\` to see all.`
           : "";
 
         return toolResult(
-          `## ${providerId} (${configured ? "configured" : "NOT CONFIGURED"}) — ${modelList.length} model${modelList.length !== 1 ? "s" : ""}\n${lines.join("\n")}${truncNote}`,
+          `## ${providerId} — ${modelList.length} model${modelList.length !== 1 ? "s" : ""}\n${lines.join("\n")}${truncNote}`,
         );
       } catch (e) {
         return toolError(e);
@@ -151,51 +131,55 @@ export function registerProviderTools(
 
   server.tool(
     "opencode_provider_auth_methods",
-    "Get available authentication methods for all providers",
+    "List integrations and the connection methods they support (API key, environment variable, OAuth, command). Provider IDs map to integration IDs.",
     {
       directory: directoryParam,
     },
     async ({ directory }) => {
       try {
-        const raw = await client.get("/provider/auth", undefined, directory);
-        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-          const entries = Object.entries(raw as Record<string, unknown>);
-          if (entries.length === 0) {
-            return toolResult("No authentication methods available.");
-          }
-          const lines = entries.map(([providerId, methods]) => {
-            const arr = Array.isArray(methods) ? methods as Array<Record<string, unknown>> : [];
-            const methodDescs = arr.map((m, index) => {
-              const type = m.type ?? "?";
-              const label = m.label ?? "";
-              return `[${index}] ${label ? `${type} (${label})` : String(type)}`;
-            });
-            return `- ${providerId}: ${methodDescs.join(", ") || "none"}`;
-          });
-          return toolResult(`## Auth Methods (${entries.length} providers)\n${lines.join("\n")}`, false, { data: raw });
+        const raw = await client.get("/api/integration", undefined, directory);
+        const integrations = (Array.isArray(raw) ? raw : []) as Array<Record<string, unknown>>;
+        if (integrations.length === 0) {
+          return toolResult("No integrations available.");
         }
-        return toolJson(raw);
+        const lines = integrations.map((integration) => {
+          const methods = (Array.isArray(integration.methods) ? integration.methods : []) as Array<Record<string, unknown>>;
+          const connections = (Array.isArray(integration.connections) ? integration.connections : []) as Array<Record<string, unknown>>;
+          const methodDescs = methods.map((m) => {
+            if (m.type === "env") return `env(${(m.names as string[] | undefined)?.join(", ") ?? ""})`;
+            return String(m.type ?? "?");
+          });
+          return `- ${integration.id}: ${methodDescs.join(", ") || "none"}${connections.length ? ` (${connections.length} connection(s))` : ""}`;
+        });
+        return toolResult(`## Integrations (${integrations.length})\n${lines.join("\n")}`, false, { data: raw });
       } catch (e) {
         return toolError(e);
       }
     },
   );
 
-  // Auth routes run OUTSIDE the directory middleware in the OpenCode server,
-  // so these tools do not accept a directory parameter.
+  // Integration routes are addressed by integration ID (provider IDs map to the
+  // same value in most cases), so these tools do not take a directory.
 
   server.tool(
     "opencode_provider_oauth_authorize",
-    "Start OAuth authorization for a provider",
+    "Start OAuth authorization for a provider's integration",
     {
-      providerId: z.string().describe("Provider ID to authorize"),
-      method: z.number().int().nonnegative().default(0).describe("Auth method index from opencode_provider_auth_methods (default 0)"),
-      inputs: z.record(z.string(), z.string()).optional().describe("Additional inputs requested by the selected authentication method"),
+      providerId: z.string().describe("Provider/integration ID to authorize"),
+      methodID: z.string().optional().describe("Specific method ID to use (defaults to the first OAuth method)"),
     },
-    async ({ providerId, method, inputs }) => {
+    async ({ providerId, methodID }) => {
       try {
+        let method = methodID;
+        if (!method) {
+          // The server requires a methodID; default to the integration's first OAuth method.
+          const integrations = await client.get<Array<{ id?: string; methods?: Array<{ id?: string; type?: string }> }>>("/api/integration");
+          const entry = Array.isArray(integrations) ? integrations.find((item) => item?.id === providerId) : undefined;
+          method = entry?.methods?.find((item) => item?.type === "oauth" && item.id)?.id;
+          if (!method) throw new Error(`No OAuth method is available for ${providerId}; pass methodID or see opencode_provider_auth_methods.`);
+        }
         return toolJson(
-          await client.post(`/provider/${encodeURIComponent(providerId)}/oauth/authorize`, { method: method ?? 0, ...(inputs ? { inputs } : {}) }),
+          await client.post(`/api/integration/${encodeURIComponent(providerId)}/connect/oauth`, { methodID: method }),
         );
       } catch (e) {
         return toolError(e);
@@ -205,19 +189,17 @@ export function registerProviderTools(
 
   server.tool(
     "opencode_provider_oauth_callback",
-    "Handle OAuth callback for a provider",
+    "Complete OAuth authorization for a provider's integration with the callback code",
     {
-      providerId: z.string().describe("Provider ID"),
-      callbackData: z.object({
-        method: z.number().int().nonnegative().describe("The method index used for authorization"),
-        code: z.string().optional().describe("Authorization code for methods that request one"),
-      }).describe("OAuth callback data"),
+      providerId: z.string().describe("Provider/integration ID"),
+      attemptID: z.string().describe("Authorization attempt ID returned by opencode_provider_oauth_authorize"),
+      code: z.string().optional().describe("Authorization code (when the redirect supplies one)"),
     },
-    async ({ providerId, callbackData }) => {
+    async ({ providerId, attemptID, code }) => {
       try {
         await client.post(
-          `/provider/${encodeURIComponent(providerId)}/oauth/callback`,
-          callbackData,
+          `/api/integration/${encodeURIComponent(providerId)}/connect/oauth/${encodeURIComponent(attemptID)}/complete`,
+          code !== undefined ? { code } : {},
         );
         return toolResult("OAuth callback processed.");
       } catch (e) {
@@ -228,16 +210,21 @@ export function registerProviderTools(
 
   server.tool(
     "opencode_auth_set",
-    "Set authentication credentials for a provider (e.g. API key). Credentials are stored globally and shared across all projects.",
+    "Set an API key credential for a provider's integration. Credentials are stored globally and shared across all projects.",
     {
-      providerId: z.string().describe("Provider ID (e.g. 'anthropic')"),
-      type: z.string().describe("Auth type (e.g. 'api')"),
-      key: z.string().describe("API key or credential value"),
+      providerId: z.string().describe("Provider/integration ID (e.g. 'anthropic')"),
+      key: z.string().describe("API key value"),
+      label: z.string().optional().describe("Optional label for the stored credential"),
     },
-    async ({ providerId, type, key }) => {
+    async ({ providerId, key, label }) => {
       try {
-        await client.put(`/auth/${providerId}`, { type, key });
-        return toolResult(`Auth credentials set for ${providerId}.`);
+        await client.post("/api/credential", {
+          integrationID: providerId,
+          value: { type: "key", key },
+          activate: true,
+          ...(label ? { label } : {}),
+        });
+        return toolResult(`Credentials set for ${providerId}.`);
       } catch (e) {
         return toolError(e);
       }

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { directoryParam, outputFormatParam } from "./helpers.js";
+import { directoryParam } from "./helpers.js";
 
 export const dispatchShape = {
   prompt: z.string().min(1).describe("Task or instruction to send to OpenCode"),
@@ -10,7 +10,6 @@ export const dispatchShape = {
   variant: z.string().optional().describe("Model variant"),
   agent: z.string().optional().describe("OpenCode agent name"),
   directory: directoryParam,
-  format: outputFormatParam,
 };
 export const runShape = {
   ...dispatchShape,

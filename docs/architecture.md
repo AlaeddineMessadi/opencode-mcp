@@ -3,20 +3,20 @@
 ## Overview
 
 ```text
-MCP client ── stdio ── opencode-mcp ── HTTP / SSE ── OpenCode server
+MCP client ── stdio ── opencode-mcp ── HTTP / SSE ── OpenCode 2.x server
                             │
                             └── local job metadata and result storage
 ```
 
-opencode-mcp is a stdio bridge. OpenCode owns coding sessions and model execution. The MCP process owns tool registration, response formatting, job observation, and its local job records. A remote OpenCode server can be used through HTTP; the MCP-facing transport remains stdio.
+opencode-mcp is a stdio bridge. OpenCode owns coding sessions and model execution. The MCP process owns tool registration, response formatting, job observation, and its local job records. A remote OpenCode server can be used through HTTP; the MCP-facing transport remains stdio. Version 4.0.0 targets the OpenCode 2.x `/api/*` server API only.
 
 ## Main Components
 
 | Area | Responsibility |
 |---|---|
 | Entry point and MCP adapter | Register the catalog, select a profile, negotiate protocol support, manage stdio |
-| `client.ts` | SDK-backed HTTP requests, error handling, bounded retries, SSE, directory routing |
-| `server-manager.ts` | Health probe, optional local child startup, owned-child shutdown |
+| `client.ts` | HTTP requests through the `@opencode-ai/sdk` v2 client, `{data, location}` envelope unwrapping, error handling, bounded retries, SSE, directory routing |
+| `server-manager.ts` | `GET /api/info` health probe, OpenCode 1.x and credential-failure detection, optional local child startup, owned-child shutdown |
 | `async.ts` | Shared request deadlines, cancellation, and abortable waits |
 | Job service and job tools | Persist handles/results, correlate completion, observe, cancel, and request required input |
 | `helpers.ts` | Input helpers, result formatting, redaction, truncation |
@@ -27,9 +27,9 @@ The full catalog is available by default. The essential profile advertises a sma
 
 ## Async State and Recovery
 
-The async workflow distinguishes submission from completion. A job can be `accepted`, `running`, `input_required`, `completed`, `failed`, `cancelled`, or `unknown`. Completion is correlated with the submitted work and an assistant message; an omitted idle entry in OpenCode's status map is not sufficient evidence by itself.
+The async workflow distinguishes submission from completion. A job can be `accepted`, `running`, `input_required`, `completed`, `failed`, `cancelled`, or `unknown`. OpenCode 2.x queues prompts in a session inbox and returns immediately. Completion is correlated with the submitted user message and the idle marker that closes its turn, whose outcome distinguishes completed, failed, and interrupted work; absence from OpenCode's active-session list is not sufficient evidence by itself.
 
-`opencode_fire` returns promptly after dispatch. `opencode_check` observes work; `opencode_wait` and `opencode_run` wait within a bounded observation period. Expiring that period returns progress with a timeout indication. It does not abort the OpenCode session. Requests for permission or answers surface as `input_required` so the caller can respond explicitly. Cancellation of an observation stops waiting; use the job-cancel or session-abort tool to stop remote work.
+`opencode_fire` returns promptly after dispatch. `opencode_check` observes work; `opencode_wait` and `opencode_run` wait within a bounded observation period. Expiring that period returns progress with a timeout indication. It does not abort the OpenCode session. Requests for permission or answers surface as `input_required` so the caller can respond explicitly. Cancellation of an observation stops waiting; use the job-cancel or session-abort tool to stop remote work. Both call OpenCode's session interrupt.
 
 Local job handles and results persist across MCP restarts, with a default 24-hour retention period measured from creation. Expiring a handle does not cancel the remote session. This supports rediscovery and resumed observation of existing OpenCode work, not checkpointing or restarting model execution. An ambiguous submission is not automatically resubmitted, because that could run a task twice. Backend failures remain errors rather than becoming successful completion.
 
@@ -43,7 +43,7 @@ No task status notifications are advertised. Clients poll explicitly. There is n
 
 ### Interactive Input
 
-Job input can present pending permission or question requests through a negotiated modern client interaction. Explicit permission and question tools provide a fallback. Replies are validated and forwarded to OpenCode; the bridge does not approve permissions on the user's behalf.
+Job input can present pending permission requests and questions (OpenCode 2.x forms) through a negotiated modern client interaction. Explicit permission and question tools provide a fallback. Replies are validated and forwarded to OpenCode; the bridge does not approve permissions on the user's behalf.
 
 ## Request Scope and Lifecycle
 
@@ -51,13 +51,13 @@ Project-scoped calls include an absolute `directory` on the OpenCode server. Val
 
 Authentication routes are global. `opencode_project_init` is a separate local-filesystem operation: it accepts `path`, checks protected roots and symlinks, creates the directory if necessary, then opens it through OpenCode. It does not create remote projects.
 
-On startup the process probes the configured endpoint. With automatic startup enabled, the SDK can launch `opencode serve` on a local loopback HTTP endpoint. Concurrent starts are coalesced by endpoint. Shutdown handlers stop only owned child processes; externally managed servers remain running.
+On startup the process probes the configured endpoint with `GET /api/info` and HTTP Basic credentials. An OpenCode 1.x server (recognized by its `/global/health` route) is rejected with an upgrade message, and a 401 produces an explicit credentials error. With automatic startup enabled, the MCP spawns `opencode serve` on a local loopback HTTP endpoint with a randomly generated private password and authenticates with it. Concurrent starts are coalesced by endpoint. Shutdown handlers stop only owned child processes; externally managed servers remain running.
 
 ## Transport and Observation Costs
 
-HTTP requests share a total deadline across attempts and use cancellation-aware waits. Project event polling forwards the directory; explicitly global event polling rejects a directory to avoid ambiguous scope. Polling preserves partial errors.
+HTTP requests share a total deadline across attempts and use cancellation-aware waits. Events come from OpenCode's single `/api/event` stream: project polling forwards the directory, while explicitly global polling omits it and rejects a directory argument to avoid ambiguous scope. Polling preserves partial errors.
 
-Job observation reads bounded recent messages to correlate completion. It uses session summary counts rather than downloading full diffs on each check. This is not a promise of zero network or history reads: the first fresh observation still contacts OpenCode; already persisted terminal results can be returned locally.
+Job observation reads bounded recent messages to correlate completion. It uses session metadata rather than downloading full diffs on each check. This is not a promise of zero network or history reads: the first fresh observation still contacts OpenCode; already persisted terminal results can be returned locally.
 
 ## Results, Resources, and Prompts
 
@@ -73,6 +73,6 @@ Unit tests cover formatting, validation, job state, and tool behavior. Local HTT
 
 ### Shared-session cancellation
 
-OpenCode aborts a whole session. Job cancellation refuses a known newer turn, but another client can submit work between that check and the abort request. Use the default dedicated session per job when cancellation must not affect concurrent work.
+OpenCode's interrupt stops a whole session. Job cancellation refuses a known newer turn, but another client can submit work between that check and the interrupt request. Use the default dedicated session per job when cancellation must not affect concurrent work.
 
 A native `tasks/cancel` acknowledgement records cancellation intent; it does not prove execution has stopped. Poll `tasks/get` for the eventual state, especially after a lost backend response.

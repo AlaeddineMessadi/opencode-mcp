@@ -34,15 +34,8 @@ export const directoryParam = z
       "If omitted, the OpenCode server uses its own working directory.",
   );
 
-/** OpenCode SDK OutputFormat, accepted by synchronous and async prompts. */
-export const outputFormatParam = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("text") }),
-  z.object({
-    type: z.literal("json_schema"),
-    schema: z.record(z.string(), z.unknown()),
-    retryCount: z.number().int().nonnegative().optional(),
-  }),
-]).optional().describe("Response format: plain text or JSON constrained by a JSON Schema. JSON Schema requires OpenCode permission for the StructuredOutput tool.");
+// OpenCode 2.x dropped prompt-level structured output (OutputFormat); prompts
+// are plain text and models are selected per session.
 
 // ── Default Provider/Model ────────────────────────────────────────────
 
@@ -123,131 +116,142 @@ export function normalizeDirectory(directory?: string): string | undefined {
  * Pulls text content from parts, summarizes tool calls, etc.
  * Accepts any shape — casts internally for safety.
  */
+/**
+ * Format a single OpenCode 2.x message into readable text.
+ *
+ * Messages are flat objects tagged by `type`:
+ *  - `user`      → `{ id, time, type, text | payload.text }`
+ *  - `assistant` → `{ id, time, type, content: [text|reasoning|tool], finish, error, cost, tokens }`
+ *  - `idle`      → `{ id, time, type, outcome, error }` (turn separators)
+ */
 export function formatMessageResponse(response: unknown): string {
   const r = response as any;
-  // StructuredOutput is a tool call whose generic acknowledgement is not the
-  // answer. Prefer the validated value over tool receipts and token metadata.
-  if (r?.info?.structured !== undefined) return safeStringify(r.info.structured);
+  if (r === null || r === undefined) return "";
+  if (typeof r !== "object") return String(r);
   const sections: string[] = [];
 
-  // Omit verbose message header for cleaner output; the caller (opencode_ask etc.)
-  // already provides session context.  Keep a minimal role tag only when it adds info.
+  if (r.type === "user") {
+    const text = typeof r.text === "string" ? r.text : typeof r.payload?.text === "string" ? r.payload.text : undefined;
+    sections.push(text ?? safeStringify(r.payload ?? r));
+    return sections.join("\n\n");
+  }
+  if (r.type === "idle") {
+    const outcome = typeof r.outcome === "string" ? r.outcome : "unknown";
+    sections.push(r.error ? `Run ${outcome}: ${JSON.stringify(r.error)}` : `Run ${outcome}.`);
+    return sections.join("\n\n");
+  }
 
-  if (r?.parts && Array.isArray(r.parts)) {
-    for (const part of r.parts) {
-      switch (part.type) {
+  if (Array.isArray(r.content)) {
+    for (const part of r.content as any[]) {
+      switch (part?.type) {
         case "text":
-          sections.push(part.text ?? part.content ?? "");
+          if (part.text) sections.push(part.text);
+          break;
+        case "reasoning":
+          // Reasoning traces are model-internal; omit from user-facing output.
           break;
         case "tool": {
           const state = part.state ?? {};
-          const detail = state.error ?? state.output ?? summarizeToolInput(state.input);
-          sections.push(`[Tool: ${part.tool ?? "unknown"}] ${state.status === "error" ? "ERROR: " : ""}${typeof detail === "string" ? detail : JSON.stringify(detail)}`);
+          const name = part.name ?? "unknown";
+          if (state.status === "error") {
+            const err = state.error;
+            const detail = typeof err?.message === "string" ? err.message : JSON.stringify(err ?? "");
+            sections.push(`[Tool: ${name}] ERROR: ${detail}`);
+          } else if (state.status === "completed") {
+            const detail = summarizeToolContent(state.content);
+            sections.push(`[Tool: ${name}]${detail ? ` ${detail}` : ""}`);
+          } else {
+            sections.push(`[Tool: ${name}] ${state.status ?? "running"}`);
+          }
           break;
         }
-        case "tool-invocation":
-        case "tool-result":
-          sections.push(
-            `[Tool: ${part.toolName ?? "unknown"}] ${part.error ? `ERROR: ${part.error}` : typeof part.output === "string" ? part.output : JSON.stringify(part.output ?? part.input, null, 2)}`,
-          );
-          break;
-        case "step-start":
-        case "step-finish":
-          // Internal lifecycle events — omit from user-facing output.
-          // Optionally surface cost/token info from step-finish.
-          if (part.type === "step-finish" && (part.cost != null || part.tokens)) {
-            const meta: string[] = [];
-            if (part.cost != null) meta.push(`cost: $${Number(part.cost).toFixed(4)}`);
-            if (part.tokens) {
-              const t = part.tokens;
-              const tokParts: string[] = [];
-              if (t.input) tokParts.push(`${t.input} in`);
-              if (t.output) tokParts.push(`${t.output} out`);
-              if (t.reasoning) tokParts.push(`${t.reasoning} reasoning`);
-              if (tokParts.length > 0) meta.push(`tokens: ${tokParts.join(", ")}`);
-            }
-            if (meta.length > 0) sections.push(`_${meta.join(" | ")}_`);
-          }
-          break;
         default:
-          // Skip unknown internal part types to keep output clean
-          if (part.text || part.content) {
-            sections.push(part.text ?? part.content);
-          }
-          // Only dump JSON for truly unknown parts that have meaningful data
-          else if (part.type && !["source"].includes(part.type)) {
-            sections.push(
-              `[${part.type}] ${JSON.stringify(part, null, 2)}`,
-            );
-          }
+          if (part?.type && part.text) sections.push(part.text);
+          break;
       }
     }
   }
-
+  if (typeof r.text === "string" && sections.length === 0) sections.push(r.text);
+  if (r.error && sections.length === 0) {
+    const err = r.error;
+    sections.push(`Error: ${typeof err?.message === "string" ? err.message : JSON.stringify(err)}`);
+  }
   return sections.join("\n\n");
 }
 
+/** Render tool result content (array of text/file items) as a compact hint. */
+function summarizeToolContent(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  const texts = content
+    .filter((item: any) => item?.type === "text" && typeof item.text === "string")
+    .map((item: any) => item.text);
+  if (texts.length === 0) return "";
+  const joined = texts.join("\n");
+  return joined.length > 300 ? joined.slice(0, 297) + "..." : joined;
+}
+
 /**
- * Format a list of messages, extracting text content from each.
- *
- * When the assistant message has no text content (common with some providers
- * that only emit tool calls), we show a concise summary of tool actions
- * instead of blank output.  Cost/token metadata from step-finish parts is
- * appended when available.
+ * Format a list of OpenCode 2.x messages (any order), extracting text content
+ * from each. Idle markers delimit turns; assistant messages carry tool parts.
  */
 export function formatMessageList(
   messages: unknown[],
 ): string {
   if (!messages || messages.length === 0) return "No messages found.";
 
-  return messages
-    .map((raw, i) => {
-      const msg = raw as any;
-      const role = msg?.info?.role ?? "unknown";
-      const id = msg?.info?.id ?? "?";
-      const parts = Array.isArray(msg?.parts) ? msg.parts : [];
+  const ordered = [...messages].sort((a, b) => {
+    const x = a as any, y = b as any;
+    return (x?.time?.created ?? 0) - (y?.time?.created ?? 0) || String(x?.id ?? "").localeCompare(String(y?.id ?? ""));
+  });
 
-      const textParts = parts
-        .filter((p: any) => p.type === "text")
-        .map((p: any) => (p.text ?? p.content ?? "").trim())
+  return ordered
+    .map((raw) => {
+      const msg = raw as any;
+      const type = msg?.type ?? "unknown";
+      const id = msg?.id ?? "?";
+      const time = typeof msg?.time?.created === "number" ? new Date(msg.time.created).toISOString() : "";
+
+      if (type === "idle") {
+        const outcome = msg.outcome ?? "unknown";
+        return `--- [idle] (${id}) ---\n${msg.error ? `Run ${outcome}: ${JSON.stringify(msg.error)}` : `Run ${outcome}.`}`;
+      }
+      if (type === "user") {
+        const text = typeof msg?.text === "string" ? msg.text : msg?.payload?.text;
+        return `--- [user] (${id})${time ? ` ${time}` : ""} ---\n${text ?? "(no text)"}`;
+      }
+      if (type !== "assistant") {
+        const text = typeof msg?.text === "string" ? msg.text : JSON.stringify(msg?.payload ?? msg);
+        return `--- [${type}] (${id}) ---\n${text}`;
+      }
+
+      const content = Array.isArray(msg.content) ? msg.content : [];
+      const textParts = content
+        .filter((p: any) => p?.type === "text" && p.text)
+        .map((p: any) => String(p.text).trim())
         .filter(Boolean)
         .join("\n");
+      const toolParts = content.filter((p: any) => p?.type === "tool");
+      const modelTag = msg?.model?.providerID && msg?.model?.id ? ` model: ${msg.model.providerID}/${msg.model.id}` : "";
 
-      const toolParts = parts.filter(
-        (p: any) => p.type === "tool" || p.type === "tool-invocation" || p.type === "tool-result",
-      );
-
-      // Extract cost/token metadata from step-finish parts
-      const costMeta = extractCostMeta(parts);
-
-      let summary = `--- Message ${i + 1} [${role}] (${id}) ---\n`;
-
-      if (msg?.info?.structured !== undefined) {
-        summary += safeStringify(msg.info.structured);
-      } else if (textParts) {
+      let summary = `--- [assistant] (${id})${time ? ` ${time}` : ""}${modelTag} ---\n`;
+      if (textParts) {
         summary += textParts;
-        if (toolParts.length > 0) {
-          summary += `\n[${toolParts.length} tool call(s)]`;
-        }
+        if (toolParts.length > 0) summary += `\n[${toolParts.length} tool call(s)]`;
       } else if (toolParts.length > 0) {
-        // No text but agent performed actions — show concise tool summaries
         const toolSummaries = toolParts.slice(0, 10).map((p: any) => {
-          const name = p.tool ?? p.toolName ?? "unknown";
-          // Extract the most useful arg (file path, command, etc.)
-          const hint = summarizeToolInput(p.state?.input ?? p.input);
-          const errTag = p.error || p.state?.status === "error" ? " ERROR" : "";
+          const name = p.name ?? "unknown";
+          const hint = summarizeToolInput(p.state?.input);
+          const errTag = p.state?.status === "error" ? " ERROR" : "";
           return `  ${name}${hint ? `: ${hint}` : ""}${errTag}`;
         });
         summary += `Agent performed ${toolParts.length} action(s):\n${toolSummaries.join("\n")}`;
-        if (toolParts.length > 10) {
-          summary += `\n  ... and ${toolParts.length - 10} more`;
-        }
+        if (toolParts.length > 10) summary += `\n  ... and ${toolParts.length - 10} more`;
       } else {
         summary += "(no content)";
       }
 
+      const costMeta = extractCostMeta(msg);
       if (costMeta) summary += `\n${costMeta}`;
-
       return summary;
     })
     .join("\n\n");
@@ -271,22 +275,18 @@ function summarizeToolInput(input: unknown): string {
 }
 
 /**
- * Extract cost/token metadata from step-finish parts and return a
- * compact line, or empty string if none found.
+ * Extract cost/token metadata from an OpenCode 2.x assistant message.
  */
-function extractCostMeta(parts: any[]): string {
-  const stepFinish = parts.find(
-    (p: any) => p.type === "step-finish" && (p.cost != null || p.tokens),
-  );
-  if (!stepFinish) return "";
+function extractCostMeta(msg: any): string {
   const meta: string[] = [];
-  if (stepFinish.cost != null) meta.push(`cost: $${Number(stepFinish.cost).toFixed(4)}`);
-  if (stepFinish.tokens) {
-    const t = stepFinish.tokens;
+  if (typeof msg?.cost === "number" && msg.cost > 0) meta.push(`cost: $${Number(msg.cost).toFixed(4)}`);
+  const t = msg?.tokens;
+  if (t && typeof t === "object") {
     const tokParts: string[] = [];
     if (t.input) tokParts.push(`${t.input} in`);
     if (t.output) tokParts.push(`${t.output} out`);
     if (t.reasoning) tokParts.push(`${t.reasoning} reasoning`);
+    if (t.cache?.read || t.cache?.write) tokParts.push(`${(t.cache.read ?? 0) + (t.cache.write ?? 0)} cache`);
     if (tokParts.length > 0) meta.push(`tokens: ${tokParts.join(", ")}`);
   }
   return meta.length > 0 ? `_${meta.join(" | ")}_` : "";
@@ -332,9 +332,10 @@ export function formatSessionList(
       const s = raw as any;
       const id = s?.id ?? "?";
       const title = s?.title ?? "(untitled)";
-      const createdAt = s?.createdAt ?? "";
       const parentID = s?.parentID ? ` (child of ${s.parentID})` : "";
-      return `- ${title} [${id}]${parentID}${createdAt ? ` created ${createdAt}` : ""}`;
+      const created = typeof s?.time?.created === "number" ? ` created ${new Date(s.time.created).toISOString()}` : "";
+      const outcome = typeof s?.outcome === "string" ? ` [${s.outcome}]` : "";
+      return `- ${title} [${id}]${parentID}${outcome}${created}`;
     })
     .join("\n");
 }
@@ -370,10 +371,10 @@ export function safeStringify(
 }
 
 /**
- * Analyze an AI message response for signs of failure:
+ * Analyze an OpenCode 2.x assistant message for signs of failure:
  *  - Completely empty (null/undefined)
- *  - Has parts but no text content (provider returned nothing)
- *  - Contains error indicators in parts
+ *  - Has content but no text (provider returned nothing)
+ *  - Contains an error field or errored tool parts
  *
  * Returns a diagnostic object with `isEmpty`, `hasError`, and `warning` text.
  */
@@ -395,21 +396,14 @@ export function analyzeMessageResponse(response: unknown): {
   }
 
   const r = response as any;
-  const parts = Array.isArray(r?.parts) ? r.parts : [];
+  const content = Array.isArray(r?.content) ? r.content : [];
 
-  // Check for error parts
-  const errorParts = parts.filter(
-    (p: any) =>
-      p.error ||
-      (p.type === "tool" && p.state?.status === "error") ||
-      (p.type === "tool-result" && p.error),
+  const errorParts = content.filter(
+    (p: any) => p?.type === "tool" && p?.state?.status === "error",
   );
-  if (r?.info?.error || r?.error || errorParts.length > 0) {
+  if (r?.error || r?.type === "idle" && r?.outcome === "failed" || errorParts.length > 0) {
     const firstError =
-      r?.info?.error ?? r?.error ??
-      errorParts[0]?.error ??
-      errorParts[0]?.state?.error ??
-      JSON.stringify(errorParts[0]);
+      r?.error ?? errorParts[0]?.state?.error ?? JSON.stringify(errorParts[0]);
     return {
       isEmpty: false,
       hasError: true,
@@ -418,15 +412,22 @@ export function analyzeMessageResponse(response: unknown): {
     };
   }
 
-  // Check if there's any actual text content
-  const textContent = parts
-    .filter((p: any) => p.type === "text")
-    .map((p: any) => (p.text ?? p.content ?? "").trim())
+  const hasToolActivity = content.some((p: any) => p?.type === "tool");
+  if (content.length === 0 && typeof r?.text !== "string") {
+    return {
+      isEmpty: true,
+      hasError: false,
+      warning:
+        "The AI returned a response with no text content. This usually means " +
+        "the provider API key is missing or the model is unavailable. " +
+        "Try a different provider/model, or use `opencode_auth_set` to configure credentials.",
+    };
+  }
+  const textContent = content
+    .filter((p: any) => p?.type === "text")
+    .map((p: any) => String(p.text ?? "").trim())
     .join("");
-
-  const hasToolActivity = parts.some((p: any) => ["tool", "tool-invocation", "tool-result"].includes(p.type));
-  if (r?.info?.structured !== undefined) return { isEmpty: false, hasError: false, warning: null };
-  if (parts.length === 0 || (textContent === "" && !hasToolActivity)) {
+  if (textContent === "" && !hasToolActivity && typeof r?.text !== "string") {
     return {
       isEmpty: true,
       hasError: false,
@@ -530,25 +531,23 @@ export function redactSecrets(value: unknown): unknown {
 }
 
 /**
- * Determine whether a provider object from the OpenCode API is truly configured
- * (i.e. has usable credentials), as opposed to being a built-in default.
+ * Determine whether a provider object from the OpenCode 2.x API is usable.
  *
- * Detection layers:
- *  - source "env" / "config" / "api" → always configured
- *  - source "custom" with a non-empty apiKey → configured
- *  - source "custom" for "anthropic" with extra option keys (OAuth sets headers) → configured
- *  - Everything else → not configured
+ * v2 providers carry `integrationID`, `activation`, and `settings`; usable
+ * credentials live either in the provider settings (apiKey) or as an active
+ * credential entry for the provider's integration.
  */
-export function isProviderConfigured(p: Record<string, unknown>): boolean {
-  const source = p.source as string | undefined;
-  if (source === "env" || source === "config" || source === "api") return true;
-  if (source === "custom") {
-    const opts = p.options as Record<string, unknown> | undefined;
-    if (typeof opts?.apiKey === "string" && opts.apiKey !== "") return true;
-    // Anthropic heuristic: OAuth sets headers but no apiKey
-    if (p.id === "anthropic" && opts && Object.keys(opts).some((k) => k !== "apiKey")) return true;
-  }
-  return false;
+export function isProviderConfigured(
+  p: Record<string, unknown>,
+  credentials?: Array<Record<string, unknown>>,
+): boolean {
+  const settings = p.settings as Record<string, unknown> | undefined;
+  if (typeof settings?.apiKey === "string" && settings.apiKey !== "") return true;
+  const id = p.integrationID ?? p.id;
+  if (typeof id !== "string") return false;
+  return (credentials ?? []).some(
+    (credential) => credential?.active === true && (credential.integrationID === id || credential.integrationID === p.id),
+  );
 }
 
 /**

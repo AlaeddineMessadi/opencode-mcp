@@ -21,6 +21,6 @@ When work reports `input_required`, the prompt asks the client to present the pe
 
 Use the absolute directory on the OpenCode server for relevant tool calls. These prompt schemas do not contain a directory argument; the client must use the project directory established in the conversation. Do not assume that a previous tool call changed the server's default project.
 
-Provider/model IDs come from discovery or both configured environment defaults. The essential profile supports the common workflow tools, while specialist file/API tools require the full profile. Prompts should only invoke capabilities actually advertised to the client.
+Provider/model IDs come from discovery or both configured environment defaults. OpenCode 2.x has no prompt-level response format, so the best-practices prompt advises asking for machine-readable output in the prompt text itself. The essential profile supports the common workflow tools, while specialist file/API tools require the full profile. Prompts should only invoke capabilities actually advertised to the client.
 
 See [examples](examples.md) for concrete tool calls and [configuration](configuration.md) for profiles and lifecycle behavior.

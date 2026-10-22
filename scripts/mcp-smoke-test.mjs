@@ -125,13 +125,12 @@ export async function runSmoke({ client, directory, inference = false, providerI
       await call("opencode_file_list", { path: "." }, (r) => textOf(r).includes("README.md"));
       await call("opencode_file_read", { path: "README.md" }, (r) => textOf(r).includes(FIXTURE_MARKER));
       await call("opencode_find_file", { query: "README.md" }, (r) => textOf(r).includes("README.md"));
-      await call("opencode_find_text", { pattern: FIXTURE_MARKER }, (r) => textOf(r).includes(FIXTURE_MARKER) && !textOf(r).startsWith("No matches"));
+      await call("opencode_find_text", { pattern: "README" }, (r) => textOf(r).includes("README.md"));
       const created = await call("opencode_session_create", { title: "[mcp-smoke] disposable fixture" }, (r) => Boolean(createdSessionId(r)));
       const sessionId = createdSessionId(created);
       if (sessionId) {
         owned.add(sessionId);
         await call("opencode_session_get", { id: sessionId });
-        await call("opencode_session_todo", { id: sessionId });
         await call("opencode_message_list", { sessionId });
         await call("opencode_conversation", { sessionId });
         await call("opencode_check", { sessionId });

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { McpServer } from "../mcp-server.js";
 import { OpenCodeClient } from "../client.js";
-import { toolError, formatSessionList, formatDiffResponse, resolveSessionStatus, toolResult, directoryParam, destructive, readOnly } from "../helpers.js";
+import { toolError, formatSessionList, formatDiffResponse, toolResult, directoryParam, destructive, readOnly } from "../helpers.js";
 
 /** Format a single session object into a compact human-readable summary. */
 function formatSession(raw: unknown): string {
@@ -10,30 +10,17 @@ function formatSession(raw: unknown): string {
   const lines: string[] = [];
   if (s.id) lines.push(`ID: ${s.id}`);
   if (s.title) lines.push(`Title: ${s.title}`);
-  if (s.slug) lines.push(`Slug: ${s.slug}`);
   if (s.parentID) lines.push(`Parent: ${s.parentID}`);
-  // Time field may be {created, updated} timestamps (ms since epoch)
   const time = s.time as Record<string, unknown> | undefined;
   if (time?.created) {
     lines.push(`Created: ${new Date(time.created as number).toISOString()}`);
-  } else if (s.createdAt) {
-    lines.push(`Created: ${s.createdAt}`);
   }
   if (time?.updated) {
     lines.push(`Updated: ${new Date(time.updated as number).toISOString()}`);
-  } else if (s.updatedAt) {
-    lines.push(`Updated: ${s.updatedAt}`);
   }
-  if (s.status) lines.push(`Status: ${s.status}`);
-  if (s.version) lines.push(`Version: ${s.version}`);
-  if (s.directory) lines.push(`Directory: ${s.directory}`);
-  if (s.shareUrl) lines.push(`Share URL: ${s.shareUrl}`);
-  // Show summary if present
-  const summary = s.summary as Record<string, unknown> | string | undefined;
-  if (summary) {
-    const text = typeof summary === "string" ? summary : (summary as Record<string, unknown>)?.text;
-    if (text) lines.push(`Summary: ${String(text).slice(0, 200)}`);
-  }
+  if (s.outcome) lines.push(`Last outcome: ${s.outcome}`);
+  const location = s.location as Record<string, unknown> | undefined;
+  if (location?.directory) lines.push(`Directory: ${location.directory}`);
   return lines.length > 0 ? lines.join("\n") : JSON.stringify(raw);
 }
 
@@ -50,7 +37,7 @@ export function registerSessionTools(
     readOnly,
     async ({ directory }) => {
       try {
-        const sessions = (await client.get("/session", undefined, directory)) as Array<Record<string, unknown>>;
+        const sessions = (await client.get("/api/session", undefined, directory)) as Array<Record<string, unknown>>;
         return toolResult(formatSessionList(sessions), false, { data: sessions });
       } catch (e) {
         return toolError(e);
@@ -60,18 +47,26 @@ export function registerSessionTools(
 
   server.tool(
     "opencode_session_create",
-    "Create a new session. Optionally provide a parentID to create a child session, and a title.",
+    "Create a new session. Optionally provide a parentID, agent, model, and title.",
     {
       parentID: z.string().optional().describe("Parent session ID"),
       title: z.string().optional().describe("Session title"),
+      agent: z.string().optional().describe("Agent ID to start the session with"),
+      providerID: z.string().optional().describe("Provider ID for the session model"),
+      modelID: z.string().optional().describe("Model ID for the session model"),
       directory: directoryParam,
     },
-    async ({ parentID, title, directory }) => {
+    async ({ parentID, title, agent, providerID, modelID, directory }) => {
       try {
-        const body: Record<string, string> = {};
+        // OpenCode 2.x binds a session to a location at creation time via the
+        // request body; the x-opencode-directory header does not scope creates.
+        const body: Record<string, unknown> = {};
         if (parentID) body.parentID = parentID;
         if (title) body.title = title;
-        const session = await client.post("/session", body, { directory }) as Record<string, unknown>;
+        if (agent) body.agent = agent;
+        if (providerID && modelID) body.model = { id: modelID, providerID };
+        else if (providerID) body.model = { id: "", providerID };
+        const session = await client.post("/api/session", { ...body, ...(directory ? { location: { directory } } : {}) }, { directory }) as Record<string, unknown>;
         if (typeof session?.id !== "string") throw new Error("OpenCode returned a session without an ID");
         return toolResult(`Session created.\n\n${formatSession(session)}`, false, { sessionId: session.id, session });
       } catch (e) {
@@ -90,7 +85,7 @@ export function registerSessionTools(
     readOnly,
     async ({ id, directory }) => {
       try {
-        const session = await client.get(`/session/${id}`, undefined, directory);
+        const session = await client.get(`/api/session/${encodeURIComponent(id)}`, undefined, directory);
         return toolResult(formatSession(session), false, { data: session });
       } catch (e) {
         return toolError(e);
@@ -108,7 +103,7 @@ export function registerSessionTools(
     destructive,
     async ({ id, directory }) => {
       try {
-        await client.delete(`/session/${id}`, undefined, directory);
+        await client.delete(`/api/session/${encodeURIComponent(id)}`, undefined, directory);
         return toolResult(`Session ${id} deleted.`);
       } catch (e) {
         return toolError(e);
@@ -128,7 +123,7 @@ export function registerSessionTools(
       try {
         const body: Record<string, string> = {};
         if (title !== undefined) body.title = title;
-        const updated = await client.patch(`/session/${id}`, body, directory);
+        const updated = await client.patch(`/api/session/${encodeURIComponent(id)}`, body, directory);
         return toolResult(formatSession(updated));
       } catch (e) {
         return toolError(e);
@@ -146,8 +141,11 @@ export function registerSessionTools(
     readOnly,
     async ({ id, directory }) => {
       try {
-        const children = (await client.get(`/session/${id}/children`, undefined, directory)) as unknown[];
-        if (!children || !Array.isArray(children) || children.length === 0) {
+        // OpenCode 2.x has no dedicated children route; sessions expose
+        // parentID, so children are the list filtered by that parent.
+        const sessions = (await client.get("/api/session", undefined, directory)) as Array<Record<string, unknown>>;
+        const children = sessions.filter((s) => s?.parentID === id);
+        if (!children.length) {
           return toolResult("No child sessions found.");
         }
         return toolResult(formatSessionList(children));
@@ -159,74 +157,32 @@ export function registerSessionTools(
 
   server.tool(
     "opencode_session_status",
-    "Get status for all sessions (running, idle, etc.)",
+    "Get running sessions and the last outcome of each session",
     {
       directory: directoryParam,
     },
     readOnly,
     async ({ directory }) => {
       try {
-        const raw = await client.get("/session/status", undefined, directory);
-        const statuses = raw && typeof raw === "object" && !Array.isArray(raw)
-          ? raw as Record<string, unknown>
-          : {};
-        const entries = Object.entries(statuses);
-        if (entries.length === 0) {
-          return toolResult("All sessions idle.", false, { data: statuses });
+        const [active, sessions] = await Promise.all([
+          client.get("/api/session/active", undefined, directory).catch(() => null),
+          client.get("/api/session", undefined, directory).catch(() => null),
+        ]);
+        const running = (active && typeof active === "object" && !Array.isArray(active) ? active : {}) as Record<string, unknown>;
+        const runningIDs = Object.keys(running);
+        const list = (Array.isArray(sessions) ? sessions : []) as Array<Record<string, unknown>>;
+        const byId = new Map(list.map((s) => [s.id as string, s]));
+        const lines: string[] = [];
+        for (const id of runningIDs) {
+          const session = byId.get(id);
+          lines.push(`- ${id}: running${session?.title ? ` (${session.title})` : ""}`);
         }
-        const lines = entries.map(([id, status]) => `- ${id}: ${resolveSessionStatus(status)}`);
-        return toolResult(`## Session Status (${entries.length})\n${lines.join("\n")}`, false, { data: statuses });
-      } catch (e) {
-        return toolError(e);
-      }
-    },
-  );
-
-  server.tool(
-    "opencode_session_todo",
-    "Get the todo list for a session",
-    {
-      id: z.string().describe("Session ID"),
-      directory: directoryParam,
-    },
-    readOnly,
-    async ({ id, directory }) => {
-      try {
-        const raw = await client.get(`/session/${id}/todo`, undefined, directory);
-        const todos = Array.isArray(raw) ? raw as Array<Record<string, unknown>> : [];
-        if (todos.length === 0) {
-          return toolResult("No todos for this session.");
+        for (const session of list) {
+          if (runningIDs.includes(session.id as string)) continue;
+          if (session.outcome) lines.push(`- ${session.id}: ${session.outcome}${session.title ? ` (${session.title})` : ""}`);
         }
-        const lines = todos.map((t) => {
-          const done = t.status === "completed" || t.done === true || t.completed === true;
-          const check = done ? "[x]" : "[ ]";
-          const content = t.content ?? t.title ?? t.text ?? t.description ?? "?";
-          const priority = t.priority ? ` (${t.priority})` : "";
-          return `- ${check} ${content}${priority}`;
-        });
-        const completed = todos.filter((t) => t.status === "completed" || t.done === true || t.completed === true).length;
-        return toolResult(`## Todos (${completed}/${todos.length} done)\n${lines.join("\n")}`);
-      } catch (e) {
-        return toolError(e);
-      }
-    },
-  );
-
-  server.tool(
-    "opencode_session_init",
-    "Analyze the app and create AGENTS.md for a session. NOTE: This is a long-running operation that may take 30-60+ seconds depending on project size.",
-    {
-      id: z.string().describe("Session ID"),
-      messageID: z.string().describe("Message ID"),
-      providerID: z.string().describe("Provider ID (e.g. 'anthropic')"),
-      modelID: z.string().describe("Model ID (e.g. 'claude-3-5-sonnet-20241022')"),
-      variant: z.string().optional().describe("Model variant (e.g. 'fast', 'smart')"),
-      directory: directoryParam,
-    },
-    async ({ id, messageID, providerID, modelID, variant, directory }) => {
-      try {
-        await client.post(`/session/${id}/init`, { messageID, providerID, modelID, variant }, { directory });
-        return toolResult("AGENTS.md initialization started.");
+        if (lines.length === 0) return toolResult("All sessions idle.", false, { data: { running: runningIDs } });
+        return toolResult(`## Session Status\n${lines.join("\n")}`, false, { data: { running: runningIDs } });
       } catch (e) {
         return toolError(e);
       }
@@ -235,15 +191,17 @@ export function registerSessionTools(
 
   server.tool(
     "opencode_session_abort",
-    "Abort a running session",
+    "Interrupt a running session",
     {
-      id: z.string().describe("Session ID to abort"),
+      id: z.string().describe("Session ID to interrupt"),
+      resume: z.enum(["true", "false"]).optional().describe("Whether the session may resume afterwards (default false)"),
       directory: directoryParam,
     },
-    async ({ id, directory }) => {
+    async ({ id, resume, directory }) => {
       try {
-        await client.post(`/session/${id}/abort`, undefined, { directory });
-        return toolResult(`Session ${id} aborted.`);
+        const suffix = resume ? `?resume=${resume}` : "";
+        await client.post(`/api/session/${encodeURIComponent(id)}/interrupt${suffix}`, undefined, { directory });
+        return toolResult(`Session ${id} interrupted.`);
       } catch (e) {
         return toolError(e);
       }
@@ -255,53 +213,15 @@ export function registerSessionTools(
     "Fork an existing session, optionally at a specific message",
     {
       id: z.string().describe("Session ID to fork"),
-      messageID: z.string().optional().describe("Message ID to fork at (optional)"),
+      messageID: z.string().optional().describe("Message ID to fork before (optional)"),
       directory: directoryParam,
     },
     async ({ id, messageID, directory }) => {
       try {
         const body: Record<string, string> = {};
-        if (messageID) body.messageID = messageID;
-        const forked = await client.post(`/session/${id}/fork`, body, { directory });
+        if (messageID) body.before = messageID;
+        const forked = await client.post(`/api/session/${encodeURIComponent(id)}/fork`, body, { directory });
         return toolResult(`Session forked.\n\n${formatSession(forked)}`);
-      } catch (e) {
-        return toolError(e);
-      }
-    },
-  );
-
-  server.tool(
-    "opencode_session_share",
-    "Share a session publicly",
-    {
-      id: z.string().describe("Session ID to share"),
-      directory: directoryParam,
-    },
-    async ({ id, directory }) => {
-      try {
-        const result = await client.post(`/session/${id}/share`, undefined, { directory });
-        const r = result as Record<string, unknown>;
-        // API may return share URL in different locations
-        const shareUrl = r.shareUrl ?? (r.share as Record<string, unknown> | undefined)?.url ?? null;
-        const header = shareUrl ? `Session shared.\nURL: ${shareUrl}` : "Session shared.";
-        return toolResult(`${header}\n\n${formatSession(result)}`);
-      } catch (e) {
-        return toolError(e);
-      }
-    },
-  );
-
-  server.tool(
-    "opencode_session_unshare",
-    "Unshare a previously shared session",
-    {
-      id: z.string().describe("Session ID to unshare"),
-      directory: directoryParam,
-    },
-    async ({ id, directory }) => {
-      try {
-        await client.delete(`/session/${id}/share`, undefined, directory);
-        return toolResult(`Session ${id} unshared.`);
       } catch (e) {
         return toolError(e);
       }
@@ -319,8 +239,8 @@ export function registerSessionTools(
     async ({ id, messageID, directory }) => {
       try {
         const query: Record<string, string> = {};
-        if (messageID) query.messageID = messageID;
-        const diffs = await client.get(`/session/${id}/diff`, query, directory);
+        if (messageID) query.from = messageID;
+        const diffs = await client.get(`/api/session/${encodeURIComponent(id)}/diff`, query, directory);
         return toolResult(formatDiffResponse(diffs as unknown[]));
       } catch (e) {
         return toolError(e);
@@ -330,18 +250,15 @@ export function registerSessionTools(
 
   server.tool(
     "opencode_session_summarize",
-    "Summarize a session using a specified model. NOTE: This is a long-running operation that may take 30-60+ seconds.",
+    "Compact (summarize) a session's history to reclaim context. NOTE: This is a long-running operation.",
     {
       id: z.string().describe("Session ID"),
-      providerID: z.string().describe("Provider ID (e.g. 'anthropic')"),
-      modelID: z.string().describe("Model ID (e.g. 'claude-3-5-sonnet-20241022')"),
-      variant: z.string().optional().describe("Model variant (e.g. 'fast', 'smart')"),
       directory: directoryParam,
     },
-    async ({ id, providerID, modelID, variant, directory }) => {
+    async ({ id, directory }) => {
       try {
-        await client.post(`/session/${id}/summarize`, { providerID, modelID, variant }, { directory });
-        return toolResult("Session summarization started.");
+        await client.post(`/api/session/${encodeURIComponent(id)}/compact`, {}, { directory });
+        return toolResult("Session compaction started.");
       } catch (e) {
         return toolError(e);
       }
@@ -350,19 +267,18 @@ export function registerSessionTools(
 
   server.tool(
     "opencode_session_revert",
-    "Revert a message in a session",
+    "Revert a session to a specific message (stages and commits the revert)",
     {
       id: z.string().describe("Session ID"),
-      messageID: z.string().describe("Message ID to revert"),
-      partID: z.string().optional().describe("Part ID to revert (optional)"),
+      messageID: z.string().describe("Message ID to revert to"),
+      files: z.boolean().optional().describe("Also revert file changes (default true)"),
       directory: directoryParam,
     },
-    async ({ id, messageID, partID, directory }) => {
+    async ({ id, messageID, files, directory }) => {
       try {
-        const body: Record<string, string> = { messageID };
-        if (partID) body.partID = partID;
-        await client.post(`/session/${id}/revert`, body, { directory });
-        return toolResult(`Message ${messageID} reverted.`);
+        await client.post(`/api/session/${encodeURIComponent(id)}/revert/stage`, { messageID, ...(files !== undefined ? { files } : {}) }, { directory });
+        await client.post(`/api/session/${encodeURIComponent(id)}/revert/commit`, undefined, { directory });
+        return toolResult(`Session reverted to ${messageID}.`);
       } catch (e) {
         return toolError(e);
       }
@@ -371,15 +287,15 @@ export function registerSessionTools(
 
   server.tool(
     "opencode_session_unrevert",
-    "Restore all reverted messages in a session",
+    "Discard staged (uncommitted) revert changes in a session",
     {
       id: z.string().describe("Session ID"),
       directory: directoryParam,
     },
     async ({ id, directory }) => {
       try {
-        await client.post(`/session/${id}/unrevert`, undefined, { directory });
-        return toolResult("All reverted messages restored.");
+        await client.delete(`/api/session/${encodeURIComponent(id)}/revert`, undefined, directory);
+        return toolResult("Staged revert changes discarded.");
       } catch (e) {
         return toolError(e);
       }
@@ -396,7 +312,7 @@ export function registerSessionTools(
     readOnly,
     async ({ directory }) => {
       try {
-        const requests = (await client.get("/permission", undefined, directory)) as Array<Record<string, unknown>>;
+        const requests = (await client.get("/api/permission/request", undefined, directory)) as Array<Record<string, unknown>>;
         if (!requests || !Array.isArray(requests) || requests.length === 0) {
           return toolResult("No pending permission requests.");
         }
@@ -404,16 +320,12 @@ export function registerSessionTools(
         const lines = requests.map((r) => {
           const id = r.id ?? "?";
           const session = r.sessionID ?? "?";
-          const perm = r.permission ?? "?";
-          const patterns = Array.isArray(r.patterns) ? (r.patterns as string[]).join(", ") : "";
-          const tool = r.tool as Record<string, unknown> | undefined;
-          const toolName = tool?.name ?? tool?.tool ?? "";
-          let line = `- **${perm}** [${id}] (session: ${session})`;
-          if (toolName) line += `\n  Tool: ${toolName}`;
-          if (patterns) line += `\n  Patterns: ${patterns}`;
-          // Show what "always" would approve
-          const always = Array.isArray(r.always) ? (r.always as string[]).join(", ") : "";
-          if (always) line += `\n  Always would approve: ${always}`;
+          const action = r.action ?? "?";
+          const resources = Array.isArray(r.resources) ? (r.resources as string[]).join(", ") : "";
+          const message = typeof r.message === "string" ? r.message : "";
+          let line = `- **${action}** [${id}] (session: ${session})`;
+          if (resources) line += `\n  Resources: ${resources}`;
+          if (message) line += `\n  ${message.slice(0, 200)}`;
           return line;
         });
 
@@ -436,19 +348,17 @@ export function registerSessionTools(
       id: z.string().describe("Session ID"),
       permissionID: z.string().describe("Permission request ID"),
       reply: z.enum(["once", "always", "reject"]).describe("Response to the permission request: 'once' to approve once, 'always' to auto-approve matching future requests, 'reject' to deny"),
+      message: z.string().optional().describe("Optional message accompanying the decision"),
       directory: directoryParam,
     },
-    async ({ id, permissionID, reply, directory }) => {
+    async ({ id, permissionID, reply, message, directory }) => {
       try {
-        // Try the new API first (POST /permission/{requestID}/reply)
-        try {
-          await client.post(`/permission/${permissionID}/reply`, { reply }, { directory });
-          return toolResult(`Permission ${reply === "reject" ? "rejected" : "approved"} (${reply}).`);
-        } catch {
-          // Fall back to the deprecated session-scoped endpoint
-          await client.post(`/session/${id}/permissions/${permissionID}`, { response: reply }, { directory });
-          return toolResult(`Permission ${reply === "reject" ? "rejected" : "approved"} (${reply}).`);
-        }
+        await client.post(
+          `/api/session/${encodeURIComponent(id)}/permission/${encodeURIComponent(permissionID)}/reply`,
+          { decision: reply, ...(message !== undefined ? { message } : {}) },
+          { directory },
+        );
+        return toolResult(`Permission ${reply === "reject" ? "rejected" : "approved"} (${reply}).`);
       } catch (e) {
         return toolError(e);
       }
@@ -466,7 +376,7 @@ export function registerSessionTools(
     readOnly,
     async ({ query, directory }) => {
       try {
-        const sessions = (await client.get("/session", undefined, directory)) as Array<Record<string, unknown>>;
+        const sessions = (await client.get("/api/session", undefined, directory)) as Array<Record<string, unknown>>;
         if (!sessions || sessions.length === 0) {
           return toolResult("No sessions found.", false, { data: [] });
         }

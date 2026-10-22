@@ -2,7 +2,7 @@
 
 ## Local smoke checks
 
-Build the package, start a local OpenCode server, then run:
+Build the package, start a local OpenCode 2.x server, then run:
 
 ```bash
 npm run build
@@ -13,7 +13,7 @@ The runner creates a temporary Git project and a session owned by that test run.
 
 No model calls run by default. Tools outside these fixture checks appear as **SKIP**, with a reason; a successful smoke run does not claim coverage of those capabilities. Any unexpected tool error, failed fixture assertion, or failed session cleanup makes the command exit nonzero. Response bodies and server diagnostics are not printed because they can contain credentials or private configuration.
 
-The runner uses a local server because the disposable project must be on the same filesystem as OpenCode. It rejects remote URLs instead of interpreting a local temporary path on another machine. Authentication uses the normal `OPENCODE_SERVER_USERNAME` and `OPENCODE_SERVER_PASSWORD` environment variables, forwarded to the MCP child; keep secrets out of command arguments. `OPENCODE_AUTO_SERVE` is always disabled for this test.
+The runner uses a local server because the disposable project must be on the same filesystem as OpenCode. It rejects remote URLs instead of interpreting a local temporary path on another machine. OpenCode 2.x always requires authentication: set `OPENCODE_SERVER_PASSWORD` (and `OPENCODE_SERVER_USERNAME` if not `opencode`) to the local server's credentials. They are forwarded to the MCP child; keep secrets out of command arguments. `OPENCODE_AUTO_SERVE` is always disabled for this test.
 
 ### Optional inference checks
 
@@ -47,7 +47,7 @@ The runner sends a text-only request through `opencode_fire`, checks progress, w
    npm audit
    git diff --check
    ```
-   Confirm the required CI matrix passed on the exact release commit. Record the tested OpenCode version. The default fixture smoke checks should pass; explicitly select a provider/model when validating inference. Record skipped live capabilities accurately.
+   Confirm the required CI matrix passed on the exact release commit. Record the tested OpenCode 2.x version. The default fixture smoke checks should pass; explicitly select a provider/model when validating inference. Record skipped live capabilities accurately.
 
 4. **Inspect and test the actual archive.**
    ```bash

@@ -21,7 +21,7 @@ export function registerResources(server: McpServer, client: OpenCodeClient) {
     },
     async () => {
       try {
-        const project = await client.get("/project/current");
+        const project = await client.get("/api/location");
         return {
           contents: [
             {
@@ -54,7 +54,7 @@ export function registerResources(server: McpServer, client: OpenCodeClient) {
       mimeType: "application/json",
     },
     async () => {
-      const config = await client.get("/config");
+      const config = await client.get("/api/config");
       return {
         contents: [
           {
@@ -77,7 +77,7 @@ export function registerResources(server: McpServer, client: OpenCodeClient) {
       mimeType: "application/json",
     },
     async () => {
-      const providers = await client.get("/provider");
+      const providers = await client.get("/api/provider");
       return {
         contents: [
           {
@@ -99,7 +99,7 @@ export function registerResources(server: McpServer, client: OpenCodeClient) {
       mimeType: "application/json",
     },
     async () => {
-      const agents = await client.get("/agent");
+      const agents = await client.get("/api/agent");
       return {
         contents: [
           {
@@ -121,7 +121,7 @@ export function registerResources(server: McpServer, client: OpenCodeClient) {
       mimeType: "application/json",
     },
     async () => {
-      const commands = await client.get("/command");
+      const commands = await client.get("/api/command");
       return {
         contents: [
           {
@@ -143,7 +143,7 @@ export function registerResources(server: McpServer, client: OpenCodeClient) {
       mimeType: "application/json",
     },
     async () => {
-      const health = await client.get("/global/health");
+      const health = await client.get("/api/info");
       return {
         contents: [
           {
@@ -166,7 +166,7 @@ export function registerResources(server: McpServer, client: OpenCodeClient) {
     },
     async () => {
       try {
-        const vcs = await client.get("/vcs");
+        const vcs = await client.get("/api/vcs");
         return {
           contents: [
             {
@@ -199,7 +199,7 @@ export function registerResources(server: McpServer, client: OpenCodeClient) {
       mimeType: "application/json",
     },
     async () => {
-      const sessions = await client.get("/session");
+      const sessions = await client.get("/api/session");
       return {
         contents: [
           {
@@ -221,7 +221,7 @@ export function registerResources(server: McpServer, client: OpenCodeClient) {
       mimeType: "application/json",
     },
     async () => {
-      const mcp = await client.get("/mcp");
+      const mcp = await client.get("/api/mcp");
       return {
         contents: [
           {
@@ -243,7 +243,7 @@ export function registerResources(server: McpServer, client: OpenCodeClient) {
       mimeType: "application/json",
     },
     async () => {
-      const status = await client.get("/file/status");
+      const status = await client.get("/api/vcs/status");
       return {
         contents: [
           {
@@ -263,8 +263,8 @@ export function registerResources(server: McpServer, client: OpenCodeClient) {
     return decodeURIComponent(value);
   };
   for (const [name, suffix, endpoint] of [
-    ["project-scoped", "current", "/project/current"],
-    ["sessions-scoped", "sessions", "/session"],
+    ["project-scoped", "current", "/api/location"],
+    ["sessions-scoped", "sessions", "/api/session"],
   ] as const) {
     server.resource(name,
       new ResourceTemplate(`opencode://projects/{directory}/${suffix}`, { list: undefined }),
@@ -286,7 +286,7 @@ export function registerResources(server: McpServer, client: OpenCodeClient) {
       async (uri, variables) => {
         const directory = normalizeDirectory(scalar(variables.directory, "directory"));
         const sessionId = scalar(variables.sessionId, "sessionId");
-        const data = await client.get(`/session/${encodeURIComponent(sessionId)}${endpointSuffix}`, undefined, directory);
+        const data = await client.get(`/api/session/${encodeURIComponent(sessionId)}${endpointSuffix}`, undefined, directory);
         return { contents: [{ uri: uri.href, mimeType: "application/json", text: safeStringify(data) }] };
       },
     );

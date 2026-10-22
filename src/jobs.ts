@@ -36,7 +36,6 @@ export interface JobStartArgs {
   model?: { providerID: string; modelID: string };
   variant?: string;
   agent?: string;
-  format?: unknown;
 }
 export interface JobInputResponse {
   id: string;
@@ -68,6 +67,32 @@ const terminal = (status: JobStatus) => ["completed", "failed", "cancelled"].inc
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const segment = (value: string) => encodeURIComponent(value);
 
+/**
+ * Convert MCP elicitation answers (one array of selected labels per form
+ * field, in field order) into the OpenCode 2.x Form.Reply answer map.
+ * Option labels are resolved to option values when they differ.
+ */
+function formAnswer(form: PendingInput | undefined, answers: string[][] | undefined): Record<string, unknown> {
+  const raw = (form as unknown as { fields?: unknown })?.fields;
+  const fields: any[] = Array.isArray(raw) ? raw : [];
+  const answer: Record<string, unknown> = {};
+  fields.forEach((field: any, index: number) => {
+    const selected = answers?.[index] ?? [];
+    const optionValue = (label: string): string => {
+      const options = Array.isArray(field?.options) ? field.options : [];
+      const match = options.find((option: any) => option?.value === label || option?.label === label);
+      return typeof match?.value === "string" ? match.value : label;
+    };
+    if (field?.type === "multiselect") answer[field.key] = selected.map(optionValue);
+    else if (field?.type === "boolean") answer[field.key] = selected[0] === "true";
+    else if (field?.type === "number" || field?.type === "integer") {
+      const numeric = Number(selected[0]);
+      answer[field.key] = Number.isFinite(numeric) ? numeric : 0;
+    } else answer[field.key] = selected[0] === undefined ? "" : optionValue(selected[0]);
+  });
+  return answer;
+}
+
 function publicSnapshot(job: StoredJob): JobSnapshot {
   const { version: _version, responses: _responses, cancelRequested: _cancelRequested, ...snapshot } = job;
   return structuredClone(snapshot);
@@ -92,21 +117,43 @@ export function createMessageId(): string {
 }
 
 async function pendingInputs(client: OpenCodeClient, sessionId: string, directory: string | undefined, options: RequestOptions): Promise<PendingInput[]> {
-  const values = await Promise.all((["question", "permission"] as const).map(async (kind) => {
+  // OpenCode 2.x: pending questions are forms (GET /api/form) and pending
+  // permissions are requests (GET /api/permission/request); both are
+  // location-scoped lists that must be filtered to this session.
+  const [forms, permissions] = await Promise.all((["/api/form", "/api/permission/request"] as const).map(async (path) => {
     try {
-      const response = await client.get<unknown>(`/${kind}`, undefined, directory, options);
-      if (!Array.isArray(response)) throw new Error(`Invalid ${kind} list response`);
-      return response.filter((input: any) => input?.sessionID === sessionId && typeof input.id === "string")
-        .map((input: any) => ({ ...input, kind } as PendingInput));
+      const response = await client.get<unknown>(path, undefined, directory, options);
+      if (!Array.isArray(response)) throw new Error(`Invalid ${path} list response`);
+      return response as Array<Record<string, unknown>>;
     } catch (error) {
       if (error instanceof OpenCodeError && error.status === 404) return [];
       throw error;
     }
   }));
-  return values.flat();
+  const inputs: PendingInput[] = [];
+  for (const form of forms) {
+    if (form?.sessionID === sessionId && typeof form.id === "string") inputs.push({ ...form, kind: "question" } as PendingInput);
+  }
+  for (const permission of permissions) {
+    if (permission?.sessionID === sessionId && typeof permission.id === "string") inputs.push({ ...permission, kind: "permission" } as PendingInput);
+  }
+  return inputs;
 }
 
-/** Observe a specific dispatched turn, or the latest user turn in a legacy session. */
+/**
+ * Read a session's messages in ascending creation order.
+ * OpenCode 2.x returns newest-first; sorting normalizes either order.
+ */
+async function readTurnMessages(
+  client: OpenCodeClient, sessionId: string, directory: string | undefined, request: { signal?: AbortSignal; deadline?: number }, limit = "100",
+): Promise<any[]> {
+  const response = await client.get<unknown>(`/api/session/${segment(sessionId)}/message`, { limit }, directory, request);
+  if (!Array.isArray(response)) throw new Error("Invalid session message response");
+  return [...response].sort((a: any, b: any) =>
+    (a?.time?.created ?? 0) - (b?.time?.created ?? 0) || String(a?.id ?? "").localeCompare(String(b?.id ?? "")));
+}
+
+/** Observe a specific dispatched turn, or the latest user turn in a session. */
 export async function observeSession(
   client: OpenCodeClient, sessionId: string, directory?: string, messageId?: string, options: RequestOptions = {},
 ): Promise<JobSnapshot> {
@@ -114,96 +161,57 @@ export async function observeSession(
   directory = normalizeDirectory(directory);
   const context = createRequestContext(options);
   const request = { signal: context.signal, deadline: context.deadline };
-  let historyIncomplete = false;
-  const readMessages = async () => {
-    const path = `/session/${segment(sessionId)}/message`;
-    try {
-      return await client.get<unknown>(path, { limit: "100" }, directory, request);
-    } catch (error) {
-      // OpenCode 1.18.31 cannot encode persisted OutputFormat class instances
-      // on user messages. A latest-assistant-only read avoids that broken row.
-      // Require a known parent ID; partial history cannot establish ownership.
-      if (!messageId || !isOutputFormatEncodingError(error)) throw error;
-      historyIncomplete = true;
-      try {
-        return await client.get<unknown>(path, { limit: "1" }, directory, request);
-      } catch (latestError) {
-        // Before the assistant exists, even the latest row is the broken user.
-        if (!isOutputFormatEncodingError(latestError)) throw latestError;
-        return [];
-      }
-    }
-  };
   try {
-    const [statuses, session, response] = await Promise.all([
-      client.get<Record<string, any>>("/session/status", undefined, directory, request),
-      client.get<any>(`/session/${segment(sessionId)}`, undefined, directory, request),
-      readMessages(),
+    const [active, session, messages] = await Promise.all([
+      client.get<Record<string, any>>("/api/session/active", undefined, directory, request).catch(() => ({}) as Record<string, any>),
+      client.get<any>(`/api/session/${segment(sessionId)}`, undefined, directory, request),
+      readTurnMessages(client, sessionId, directory, request),
     ]);
-    if (!Array.isArray(response)) throw new Error("Invalid session message response");
-    const messages = [...response].sort((a: any, b: any) =>
-      (a?.info?.time?.created ?? 0) - (b?.info?.time?.created ?? 0) || String(a?.info?.id ?? "").localeCompare(String(b?.info?.id ?? "")));
-    const latestUser = messages.filter((message: any) => message?.info?.role === "user").at(-1);
-    const target = messageId ?? latestUser?.info?.id;
-    const assistant = messages.filter((message: any) => message?.info?.role === "assistant" && (!target || message.info.parentID === target)).at(-1);
-    const rawStatus = statuses?.[sessionId];
-    const state = typeof rawStatus === "string" ? rawStatus : rawStatus?.type ?? rawStatus?.state ?? "idle";
+    const latestUser = messages.filter((message: any) => message?.type === "user").at(-1);
+    const target = messageId ?? latestUser?.id;
     const snapshot: JobSnapshot = { sessionId, directory, messageId: target, status: "accepted", session };
+    const targetIndex = messages.findIndex((message: any) => message?.id === target);
+    // The turn is everything after our user message, up to and including the
+    // idle marker that closes it: user → assistant* → idle. A newer user
+    // message ends the slice, so a finished older turn is still recognised.
+    const rest = targetIndex >= 0 ? messages.slice(targetIndex + 1) : [];
+    const nextUser = rest.findIndex((message: any) => message?.type === "user");
+    const turn = nextUser >= 0 ? rest.slice(0, nextUser) : rest;
+    const idleMarker = turn.find((message: any) => message?.type === "idle");
+    // A session can contain another active turn. Never offer its forms or
+    // permissions as inputs for an older job, even if its result is unavailable.
+    if (!idleMarker && target && latestUser && latestUser.id !== target) {
+      snapshot.status = "unknown";
+      snapshot.inputs = [];
+      return snapshot;
+    }
+    const assistants = turn.filter((message: any) => message?.type === "assistant");
+    const assistant = assistants.at(-1);
     if (assistant) {
-      snapshot.result = assistant.info.structured ?? assistant;
+      snapshot.result = assistant;
       snapshot.text = formatMessageResponse(assistant);
-      if (assistant.info.error) {
-        snapshot.error = assistant.info.error;
-        snapshot.status = assistant.info.error.name === "MessageAbortedError" ? "cancelled" : "failed";
+    }
+    if (idleMarker) {
+      if (idleMarker.outcome === "interrupted") {
+        snapshot.status = "cancelled";
         return snapshot;
       }
-      // A tool-call step can complete while the turn continues. Require idle,
-      // a completed assistant and a final finish reason when supplied.
-      // Validated structured output itself ends the turn, even though OpenCode
-      // preserves the StructuredOutput step's "tool-calls" finish reason.
-      if ((state === "idle" || (target && latestUser && latestUser.info.id !== target)) && typeof assistant.info.time?.completed === "number" &&
-          (assistant.info.structured !== undefined || !["tool-calls", "unknown"].includes(assistant.info.finish))) {
-        snapshot.status = "completed";
+      if (idleMarker.outcome === "failed") {
+        snapshot.status = "failed";
+        snapshot.error = idleMarker.error ?? { name: "SessionError", message: "Session reported an error" };
         return snapshot;
       }
-    }
-    if (state === "error" || state === "failed") {
-      snapshot.status = "failed";
-      snapshot.error = rawStatus?.error ?? { name: "SessionError", message: "Session reported an error" };
+      snapshot.status = "completed";
       return snapshot;
     }
-    if (state === "busy" || state === "retry" || state === "running") snapshot.status = "running";
-    if (historyIncomplete) {
-      snapshot.status = "unknown";
-      snapshot.error = { name: "MessageHistoryUnavailable", message: "OpenCode could not serialize message history. No completed result for the requested turn is available yet; observe this job again without resubmitting." };
-      snapshot.inputs = [];
-      return snapshot;
-    }
-    // A session can contain another active turn. Never offer its permissions
-    // as inputs for an older job, even if that job's result is unavailable.
-    if (target && latestUser && latestUser.info.id !== target) {
-      snapshot.status = "unknown";
-      snapshot.inputs = [];
-      return snapshot;
-    }
+    // No idle marker yet: the run is queued, running, or its outcome unknown.
+    const running = typeof active?.[sessionId]?.type === "string";
+    if (running || assistants.length > 0) snapshot.status = "running";
     snapshot.inputs = await pendingInputs(client, sessionId, directory, request);
     if (snapshot.inputs.length) snapshot.status = "input_required";
     return snapshot;
   } finally {
     context.dispose();
-  }
-}
-
-function isOutputFormatEncodingError(error: unknown): boolean {
-  if (!(error instanceof OpenCodeError) || error.status !== 400 || error.method !== "GET") return false;
-  try {
-    const body = JSON.parse(error.body);
-    return body?.name === "BadRequest" && body.data?.kind === "Body" &&
-      typeof body.data.message === "string" &&
-      /^Expected OutputFormat(?:JsonSchema|Text), got /.test(body.data.message) &&
-      body.data.message.includes('["info"]["format"]');
-  } catch {
-    return false;
   }
 }
 
@@ -360,16 +368,28 @@ export class JobService {
         throwIfAborted(context.signal);
         await this.save(job); // Record ownership before the first remote mutation.
         try {
+          const model = args.model
+            ? { id: args.model.modelID, providerID: args.model.providerID, ...(args.variant ? { variant: args.variant } : {}) }
+            : undefined;
           if (!job.sessionId) {
-            const session = await this.client.post<{ id: string }>("/session", { title: args.title ?? "MCP delegated task" }, request);
+            // OpenCode 2.x: session creation takes the model and location in the
+            // body; the x-opencode-directory header does not scope POST /api/session.
+            const session = await this.client.post<{ id: string }>("/api/session", {
+              title: args.title ?? "MCP delegated task",
+              ...(model ? { model } : {}),
+              ...(directory ? { location: { directory } } : {}),
+            }, request);
             if (typeof session?.id !== "string" || !session.id) throw new Error("OpenCode returned no session ID");
             job.sessionId = session.id;
             await this.save(job);
+          } else if (model) {
+            // v2 prompts no longer accept a model; switch the session instead.
+            await this.client.post(`/api/session/${segment(job.sessionId)}/model`, { model }, request);
           }
-          await this.client.post(`/session/${segment(job.sessionId)}/prompt_async`, {
-            messageID: job.messageId, parts: [{ type: "text", text: args.prompt }],
-            ...(args.model ? { model: args.model } : {}), ...(args.variant ? { variant: args.variant } : {}),
-            ...(args.agent ? { agent: args.agent } : {}), ...(args.format ? { format: args.format } : {}),
+          // v2 prompts return immediately with the queued user message; the
+          // pre-assigned id lets observeSession attribute the turn later.
+          await this.client.post(`/api/session/${segment(job.sessionId)}/prompt`, {
+            id: job.messageId, text: args.prompt, ...(args.agent ? { agent: args.agent } : {}),
           }, request);
           job.status = "accepted";
         } catch (error) {
@@ -418,16 +438,19 @@ export class JobService {
       job = await this.refresh(job, options);
       if (terminal(job.status)) return publicSnapshot(job);
       if (!job.sessionId) throw new Error("No known session to cancel");
-      // OpenCode's abort endpoint is session-wide: refuse to abort a newer turn.
-      const messages = await this.client.get<any[]>(`/session/${segment(job.sessionId)}/message`, { limit: "100" }, job.directory, options);
-      const users = messages.filter((message) => message?.info?.role === "user");
-      const newest = users.sort((a, b) => (a.info.time?.created ?? 0) - (b.info.time?.created ?? 0) || String(a.info.id).localeCompare(String(b.info.id))).at(-1);
-      if (newest && newest.info.id !== job.messageId) throw new Error("A newer turn owns this session; refusing to abort unrelated work");
+      // OpenCode 2.x's interrupt is session-wide: refuse to abort a newer turn.
+      const messages = await this.client.get<any[]>(`/api/session/${segment(job.sessionId)}/message`, { limit: "100" }, job.directory, options);
+      const users = messages.filter((message) => message?.type === "user")
+        .sort((a, b) => (a.time?.created ?? 0) - (b.time?.created ?? 0) || String(a.id).localeCompare(String(b.id)));
+      const newest = users.at(-1);
+      if (newest && newest.id !== job.messageId) throw new Error("A newer turn owns this session; refusing to abort unrelated work");
       if (job.cancelRequested) return publicSnapshot(job);
       job.cancelRequested = true;
       await this.save(job);
       try {
-        await this.client.post(`/session/${segment(job.sessionId)}/abort`, {}, { ...options, directory: job.directory });
+        // resume=false ends the turn; an idle marker with outcome "interrupted"
+        // is appended so later observations stay consistent.
+        await this.client.post(`/api/session/${segment(job.sessionId)}/interrupt?resume=false`, undefined, { ...options, directory: job.directory });
         job.status = "cancelled";
         delete job.error;
       } catch (error) {
@@ -463,9 +486,24 @@ export class JobService {
         job.responses[key] = { digest, state: "sending" };
         await this.save(job);
         try {
-          const path = `/${response.kind}/${segment(response.id)}/${response.kind === "question" && response.reject ? "reject" : "reply"}`;
-          const body = response.kind === "permission" ? { reply: response.reply, ...(response.message ? { message: response.message } : {}) } : response.reject ? undefined : { answers: response.answers };
-          await this.client.post(path, body, { ...options, directory: job.directory });
+          const input = job.inputs?.find((pending) => pending.id === response.id && pending.kind === response.kind);
+          const sessionId = (input as { sessionID?: string } | undefined)?.sessionID ?? job.sessionId;
+          if (!sessionId) throw new Error("No session associated with this input");
+          if (response.kind === "permission") {
+            await this.client.post(
+              `/api/session/${segment(sessionId)}/permission/${segment(response.id)}/reply`,
+              { decision: response.reply, ...(response.message ? { message: response.message } : {}) },
+              { ...options, directory: job.directory },
+            );
+          } else if (response.reject) {
+            await this.client.delete(`/api/session/${segment(sessionId)}/form/${segment(response.id)}`, undefined, job.directory, options);
+          } else {
+            await this.client.post(
+              `/api/session/${segment(sessionId)}/form/${segment(response.id)}/reply`,
+              { answer: formAnswer(input, response.answers) },
+              { ...options, directory: job.directory },
+            );
+          }
           job.responses[key].state = "sent";
         } catch (error) {
           if (error instanceof OpenCodeError) delete job.responses[key];
