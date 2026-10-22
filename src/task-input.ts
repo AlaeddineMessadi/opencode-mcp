@@ -25,22 +25,41 @@ export const inputAnswerSchema = z.object({
     ctx.addIssue({ code: "custom", message: "Question input requires answers or reject=true, exclusively" });
 });
 
-function questions(item: PendingRequest): Array<{ question?: string; options?: Array<{ label: string }>; multiple?: boolean }> {
-  return Array.isArray(item.questions) ? item.questions : [];
+/** A single OpenCode 2.x form field (Form.Field union). */
+interface FormField {
+  key?: string;
+  title?: string;
+  description?: string;
+  type?: string;
+  options?: Array<{ value?: string; label?: string }>;
+}
+
+function formFields(item: PendingRequest): FormField[] {
+  return Array.isArray(item.fields) ? (item.fields as FormField[]) : [];
+}
+function isMultiselect(field: FormField): boolean {
+  return field?.type === "multiselect";
 }
 export function inputRequests(items: PendingRequest[]): InputRequests {
   return Object.fromEntries(items.map(item => {
     const key = `${item.kind}:${item.id}`;
     if (item.kind === "permission") {
-      return [key, inputRequired.elicit({ message: `OpenCode requests ${String(item.permission ?? "permission")} for ${JSON.stringify(item.patterns ?? [])}`,
+      // OpenCode 2.x Permission.Request: { action, resources, message? }.
+      const action = typeof item.action === "string" ? item.action : "permission";
+      const resources = Array.isArray(item.resources) ? item.resources.map(String) : [];
+      const note = typeof item.message === "string" && item.message ? `\n${item.message}` : "";
+      return [key, inputRequired.elicit({ message: `OpenCode requests ${action} for ${JSON.stringify(resources)}${note}`,
         requestedSchema: { type: "object", properties: { decision: { type: "string", enum: ["once", "always", "reject"], description: "Choose explicitly; no approval is selected automatically" } }, required: ["decision"] } })];
     }
-    const qs = questions(item);
-    const properties = Object.fromEntries(qs.map((q, index) => [`answer_${index}`, {
-      type: "string" as const,
-      description: `${q.question ?? "Answer"}${q.options?.length ? ` Options: ${q.options.map(o => o.label).join(", ")}.` : ""}${q.multiple ? " For multiple choices, enter a JSON array of labels." : ""}`,
-    }]));
-    return [key, inputRequired.elicit({ message: qs.map(q => q.question).join("\n") || "OpenCode needs your input",
+    const fields = formFields(item);
+    const properties = Object.fromEntries(fields.map((field, index) => {
+      const labels = (field.options ?? []).map(option => option.label ?? option.value ?? "").filter(Boolean);
+      return [`answer_${index}`, {
+        type: "string" as const,
+        description: `${field.description ?? field.title ?? "Answer"}${labels.length ? ` Options: ${labels.join(", ")}.` : ""}${isMultiselect(field) ? " For multiple choices, enter a JSON array of labels." : ""}`,
+      }];
+    }));
+    return [key, inputRequired.elicit({ message: fields.map(field => field.title ?? field.description).filter(Boolean).join("\n") || (typeof item.title === "string" && item.title ? item.title : "OpenCode needs your input"),
       requestedSchema: { type: "object", properties, required: Object.keys(properties) } })];
   }));
 }
@@ -56,9 +75,9 @@ export function decodeInputResponses(items: PendingRequest[], responses: Record<
       ...(item.kind === "permission" ? { reply: "reject" as const } : { reject: true }) }];
     if (item.kind === "permission") return [{ id: item.id, kind: item.kind,
       reply: z.enum(["once", "always", "reject"]).parse(response.content?.decision) }];
-    const answers = questions(item).map((q, index) => {
+    const answers = formFields(item).map((field, index) => {
       const value = z.string().parse(response.content?.[`answer_${index}`]);
-      return q.multiple ? z.array(z.string()).parse(JSON.parse(value)) : [value];
+      return isMultiselect(field) ? z.array(z.string()).parse(JSON.parse(value)) : [value];
     });
     return [{ id: item.id, kind: item.kind, answers }];
   });

@@ -6,24 +6,24 @@
 
 **Delegate coding work to OpenCode from your MCP client.**
 
-opencode-mcp connects Claude, Cursor, VS Code, and other MCP clients to OpenCode's headless API. Ask questions, implement features, monitor background work, respond to questions and permissions, and review changes across projects.
+opencode-mcp connects Claude, Cursor, VS Code, and other MCP clients to OpenCode's headless API (OpenCode 2.x). Ask questions, implement features, monitor background work, respond to questions and permissions, and review changes across projects.
 
-> Version 3.0.0 requires **Node.js 22 or newer**. Upgrading from 2.x? See the [migration notes](CHANGELOG.md#300---2026-09-16).
+> Version 4.0.0 requires an **OpenCode 2.x server** and **Node.js 22 or newer**. OpenCode 1.x servers are detected and rejected. Upgrading from 3.x? See the [migration notes](CHANGELOG.md#400---2026-10-22).
 
 ## Quick Start
 
-Install [OpenCode](https://opencode.ai/docs/) and start its server from your project:
+Install [OpenCode](https://opencode.ai/docs/) 2.x and start its server from your project:
 
 ```bash
-opencode serve --hostname 127.0.0.1 --port 4096
+OPENCODE_SERVER_PASSWORD=<choose-a-password> opencode serve --hostname 127.0.0.1 --port 4096
 ```
 
-If you use the TUI, start it with `opencode --port 4096` and share that server. Set `OPENCODE_BASE_URL` for another endpoint.
+OpenCode 2.x always requires HTTP Basic authentication. Give the MCP the same password through `OPENCODE_SERVER_PASSWORD` (username `opencode`). If you start the server without a password, OpenCode prints a generated one at startup. If you use the TUI, start it with `opencode --port 4096` and share that server. Set `OPENCODE_BASE_URL` for another endpoint.
 
 For Claude Code:
 
 ```bash
-claude mcp add opencode -- npx -y opencode-mcp
+claude mcp add opencode --env OPENCODE_SERVER_PASSWORD=<server-password> -- npx -y opencode-mcp
 ```
 
 For clients using an `mcpServers` configuration:
@@ -33,13 +33,14 @@ For clients using an `mcpServers` configuration:
   "mcpServers": {
     "opencode": {
       "command": "npx",
-      "args": ["-y", "opencode-mcp"]
+      "args": ["-y", "opencode-mcp"],
+      "env": { "OPENCODE_SERVER_PASSWORD": "<server-password>" }
     }
   }
 }
 ```
 
-Restart the client and call `opencode_setup`. Choose a provider from its configured providers, then use `opencode_provider_models` to select a model. Set `OPENCODE_DEFAULT_PROVIDER` and `OPENCODE_DEFAULT_MODEL` together or pass the selected IDs in each prompt call.
+Restart the client and call `opencode_setup`. Choose a provider from its configured providers, then use `opencode_provider_models` to select a model. Set `OPENCODE_DEFAULT_PROVIDER` and `OPENCODE_DEFAULT_MODEL` together or pass the selected IDs in prompt calls. OpenCode 2.x selects models per session: passing a model for an existing session switches that session's model for later turns.
 
 [Client-specific configuration](docs/configuration.md) includes VS Code, Windsurf, Continue, Zed, and Amazon Q. To test unreleased changes, [build from source](CONTRIBUTING.md) and configure your client to run `node` with the absolute path to `dist/index.js`.
 
@@ -69,7 +70,7 @@ Async results distinguish `accepted`, `running`, `input_required`, `completed`, 
 
 Modern clients can use the MCP Tasks extension for `opencode_run`. Clients without that extension use ordinary tools, including `opencode_fire` and `opencode_check`. Task status is retrieved by polling; this package does not promise to wake an idle assistant with completion notifications.
 
-Tools retain readable text and provide structured results for clients that consume them. Prompt tools accept optional model variants and OpenCode structured-output formats. See the [generated tools reference](docs/tools.md) and [examples](docs/examples.md).
+Tools retain readable text and provide structured results for clients that consume them. Prompt tools accept optional model variants; OpenCode 2.x has no prompt-level structured-output format, so ask for machine-readable output in the prompt text. See the [generated tools reference](docs/tools.md) and [examples](docs/examples.md).
 
 ## Multi-Project Use
 
@@ -81,13 +82,13 @@ Independent sessions do not isolate filesystem changes. Use separate project dir
 
 ## Configuration
 
-All settings are optional; an OpenCode server must already be running by default.
+An OpenCode 2.x server must already be running by default, and its password must be supplied through `OPENCODE_SERVER_PASSWORD` unless the MCP starts the server itself.
 
 | Variable | Purpose |
 |---|---|
 | `OPENCODE_BASE_URL` | Server endpoint; defaults to `http://127.0.0.1:4096` |
-| `OPENCODE_SERVER_USERNAME`, `OPENCODE_SERVER_PASSWORD` | Optional server HTTP authentication |
-| `OPENCODE_AUTO_SERVE` | Set to `true` to opt in to launching a local server |
+| `OPENCODE_SERVER_USERNAME`, `OPENCODE_SERVER_PASSWORD` | Server HTTP Basic authentication; username defaults to `opencode`, password must match the server's |
+| `OPENCODE_AUTO_SERVE` | Set to `true` to opt in to launching a local server with a generated private password |
 | `OPENCODE_DEFAULT_PROVIDER`, `OPENCODE_DEFAULT_MODEL` | Default prompt provider/model pair |
 | `OPENCODE_TOOL_PROFILE` | `full` (default) or a smaller `essential` tool set |
 | `OPENCODE_TASK_STORE` | Override the local directory for persisted job records |

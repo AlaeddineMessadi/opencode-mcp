@@ -37,8 +37,10 @@ export function registerEventTools(
         const context = createRequestContext({ signal: extra?.signal, timeout: durationMs ?? 3000 });
         let streamError: unknown;
         try {
-          for await (const evt of client.subscribeSSE(scope === "global" ? "/global/event" : "/event", {
-            signal: context.signal, deadline: context.deadline, directory,
+          // OpenCode 2.x exposes a single /api/event stream; project scope is
+          // expressed with the directory parameter, global scope without one.
+          for await (const evt of client.subscribeSSE("/api/event", {
+            signal: context.signal, deadline: context.deadline, ...(scope === "global" ? {} : { directory }),
           })) {
             events.push(evt);
             if (events.length >= (maxEvents ?? 50)) break;

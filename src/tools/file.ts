@@ -6,36 +6,22 @@ import { toolJson, toolError, toolResult, directoryParam, readOnly } from "../he
 export function registerFileTools(server: McpServer, client: OpenCodeClient) {
   server.tool(
     "opencode_find_text",
-    "Search for text patterns in project files (regex supported). Returns file paths, line numbers, and matching lines.",
+    "Search for files and directories whose path matches a pattern. OpenCode 2.x matches names and paths (no line-level text search).",
     {
       pattern: z
         .string()
-        .describe("Text or regex pattern to search for in files"),
+        .describe("Text pattern matched against file and directory paths"),
       directory: directoryParam,
     },
     readOnly,
     async ({ pattern, directory }) => {
       try {
-        const raw = await client.get("/find", { pattern }, directory);
+        const raw = await client.get("/api/fs/find", { query: pattern }, directory);
         const results = Array.isArray(raw) ? raw as Array<Record<string, unknown>> : [];
         if (results.length === 0) {
           return toolResult(`No matches found for pattern: ${pattern}`, false, { data: [] });
         }
-        const formatted = results.map((r) => {
-          // The API returns path as {text: "file.ts"} and lines as {text: "content\n"}
-          const rawPath = r.path ?? r.file ?? r.name ?? "";
-          const filePath = typeof rawPath === "string"
-            ? rawPath
-            : (rawPath as Record<string, unknown>)?.text ?? (rawPath as Record<string, unknown>)?.path ?? (rawPath as Record<string, unknown>)?.name ?? String(rawPath);
-          const lineNum = r.line_number ?? r.lineNumber ?? r.line ?? "?";
-          const rawLines = r.lines ?? r.text ?? r.content ?? "";
-          const lineText = typeof rawLines === "string"
-            ? rawLines.trim()
-            : (rawLines as Record<string, unknown>)?.text != null
-              ? String((rawLines as Record<string, unknown>).text).trim()
-              : JSON.stringify(rawLines);
-          return `${filePath}:${lineNum}  ${lineText}`;
-        }).join("\n");
+        const formatted = results.map((r) => `${r.type === "directory" ? "[DIR] " : ""}${r.path ?? "?"}`).join("\n");
         return toolResult(`${results.length} match(es):\n\n${formatted}`, false, { data: results });
       } catch (e) {
         return toolError(e);
@@ -45,17 +31,13 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
 
   server.tool(
     "opencode_find_file",
-    "Find files and directories by name (fuzzy match)",
+    "Find files and directories by name",
     {
       query: z.string().describe("Search string for file/directory names"),
       type: z
         .enum(["file", "directory"])
         .optional()
         .describe("Limit results to 'file' or 'directory'"),
-      searchDirectory: z
-        .string()
-        .optional()
-        .describe("Override the project root for the search"),
       limit: z
         .number()
         .optional()
@@ -63,51 +45,17 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
       directory: directoryParam,
     },
     readOnly,
-    async ({ query, type, searchDirectory, limit, directory }) => {
+    async ({ query, type, limit, directory }) => {
       try {
         const q: Record<string, string> = { query };
         if (type) q.type = type;
-        if (searchDirectory) q.directory = searchDirectory;
         if (limit !== undefined) q.limit = String(limit);
-        const files = (await client.get("/find/file", q, directory)) as string[];
+        const files = (await client.get("/api/fs/find", q, directory)) as Array<Record<string, unknown>>;
         if (!files || files.length === 0) {
           return toolResult(`No files found matching: ${query}`, false, { data: [] });
         }
-        return toolResult(files.join("\n"), false, { data: files });
-      } catch (e) {
-        return toolError(e);
-      }
-    },
-  );
-
-  server.tool(
-    "opencode_find_symbol",
-    "Find workspace symbols by name (functions, classes, variables, etc.)",
-    {
-      query: z.string().describe("Symbol name to search for"),
-      directory: directoryParam,
-    },
-    readOnly,
-    async ({ query, directory }) => {
-      try {
-        const raw = await client.get("/find/symbol", { query }, directory);
-        const symbols = Array.isArray(raw) ? raw as Array<Record<string, unknown>> : [];
-        if (symbols.length === 0) {
-          return toolResult(`No symbols found matching: ${query}`, false, { data: [] });
-        }
-        const lines = symbols.map((s) => {
-          const name = s.name ?? s.symbol ?? "?";
-          const kind = s.kind ? ` (${s.kind})` : "";
-          const location = s.location && typeof s.location === "object"
-            ? s.location as { uri?: string; range?: { start?: { line?: number } } }
-            : undefined;
-          const loc = location?.uri ?? (typeof s.location === "string" ? s.location : s.path ?? s.file ?? "");
-          const line = typeof location?.range?.start?.line === "number"
-            ? location.range.start.line + 1 : s.line ?? s.lineNumber ?? "";
-          const locStr = loc ? ` — ${loc}${line ? `:${line}` : ""}` : "";
-          return `- ${name}${kind}${locStr}`;
-        });
-        return toolResult(`${symbols.length} symbol(s) matching "${query}":\n\n${lines.join("\n")}`, false, { data: symbols });
+        const formatted = files.map((f) => `${f.type === "directory" ? "[DIR] " : ""}${f.path ?? "?"}`).join("\n");
+        return toolResult(formatted, false, { data: files });
       } catch (e) {
         return toolError(e);
       }
@@ -121,20 +69,21 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
       path: z
         .string()
         .optional()
-        .describe("Path to list (defaults to project root)"),
+        .describe("Relative path to list (defaults to project root)"),
       directory: directoryParam,
     },
     readOnly,
     async ({ path, directory }) => {
       try {
-        const q: Record<string, string> = { path: path || "." };
-        const nodes = (await client.get("/file", q, directory)) as Array<Record<string, unknown>>;
+        const q: Record<string, string> = {};
+        if (path) q.path = path;
+        const nodes = (await client.get("/api/fs/list", q, directory)) as Array<Record<string, unknown>>;
         if (!nodes || nodes.length === 0) {
           return toolResult("Empty directory.");
         }
         const formatted = nodes.map((n) => {
           const type = n.type === "directory" ? "[DIR]" : "     ";
-          return `${type} ${n.name ?? n.path ?? "?"}`;
+          return `${type} ${n.path ?? "?"}`;
         }).join("\n");
         return toolResult(formatted);
       } catch (e) {
@@ -145,17 +94,17 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
 
   server.tool(
     "opencode_file_read",
-    "Read the content of a file",
+    "Read the content of a file relative to the project root",
     {
-      path: z.string().describe("File path to read"),
+      path: z.string().describe("File path to read, relative to the project root"),
       directory: directoryParam,
     },
     readOnly,
     async ({ path, directory }) => {
       try {
-        const result = (await client.get("/file/content", { path }, directory)) as Record<string, unknown>;
-        if (typeof result.content === "string") {
-          return toolResult(`File: ${path}\n\n${result.content}`, false, { data: result });
+        const result = await client.get(`/api/fs/read/${path.split("/").map(encodeURIComponent).join("/")}`, undefined, directory);
+        if (typeof result === "string") {
+          return toolResult(`File: ${path}\n\n${result}`, false, { data: result });
         }
         return toolJson(result);
       } catch (e) {
@@ -166,21 +115,23 @@ export function registerFileTools(server: McpServer, client: OpenCodeClient) {
 
   server.tool(
     "opencode_file_status",
-    "Get status for tracked files (VCS changes: modified, added, deleted, etc.)",
+    "Get status for tracked files (VCS changes: modified, added, deleted)",
     {
       directory: directoryParam,
     },
     readOnly,
     async ({ directory }) => {
       try {
-        const files = (await client.get("/file/status", undefined, directory)) as Array<Record<string, unknown>>;
+        const files = (await client.get("/api/vcs/status", undefined, directory)) as Array<Record<string, unknown>>;
         if (!files || files.length === 0) {
           return toolResult("No tracked file changes.");
         }
         const formatted = files.map((f) => {
-          const status = f.status ?? f.type ?? "?";
-          const path = f.path ?? f.file ?? "?";
-          return `[${status}] ${path}`;
+          const status = f.status ?? "?";
+          const path = f.file ?? f.path ?? "?";
+          const additions = typeof f.additions === "number" ? ` (+${f.additions}` : "";
+          const deletions = typeof f.deletions === "number" ? ` -${f.deletions})` : "";
+          return `[${status}] ${path}${additions || deletions ? `${additions}${deletions}` : ""}`;
         }).join("\n");
         return toolResult(formatted);
       } catch (e) {

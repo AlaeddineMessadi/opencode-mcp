@@ -8,26 +8,50 @@ import { decodeInputResponses, inputAnswerSchema, inputRequests, supportsForm } 
 
 const errorResult = (error: unknown) => toolResult(error instanceof Error ? error.message : String(error), true);
 
+/**
+ * Resolve the session that owns a form. OpenCode 2.x forms are
+ * session-scoped: replies and dismissals address
+ * /api/session/{sessionID}/form/{formID}.
+ */
+async function formSession(client: OpenCodeClient, formId: string, directory: string | undefined, sessionId?: string): Promise<string> {
+  if (sessionId) return sessionId;
+  const forms = await client.get<any[]>("/api/form", undefined, directory);
+  const form = (Array.isArray(forms) ? forms : []).find((f) => f?.id === formId);
+  if (typeof form?.sessionID !== "string" || !form.sessionID) throw new Error("Form not found; supply the sessionId that owns it");
+  return form.sessionID;
+}
+
 export function registerInputTools(server: McpServer, client: OpenCodeClient, jobs: JobService) {
-  server.tool("opencode_question_list", "List pending OpenCode questions, optionally filtered to a session.", {
+  server.tool("opencode_question_list", "List pending OpenCode forms, optionally filtered to a session.", {
     sessionId: z.string().optional(), directory: directoryParam,
   }, async ({ sessionId, directory }) => {
     try {
-      const questions = await client.get<any[]>("/question", undefined, normalizeDirectory(directory));
-      return toolJson(sessionId ? questions.filter(q => q.sessionID === sessionId) : questions);
+      const forms = await client.get<any[]>("/api/form", undefined, normalizeDirectory(directory));
+      return toolJson(sessionId ? forms.filter((f) => f.sessionID === sessionId) : forms);
     } catch (error) { return errorResult(error); }
   });
-  server.tool("opencode_question_reply", "Answer an OpenCode question request. Supply one array of selected labels or free text per question.", {
-    requestId: z.string().min(1), answers: z.array(z.array(z.string())), directory: directoryParam,
-  }, async ({ requestId, answers, directory }) => {
-    try { return toolJson(await client.post(`/question/${encodeURIComponent(requestId)}/reply`, { answers }, { directory: normalizeDirectory(directory) })); }
-    catch (error) { return errorResult(error); }
+  server.tool("opencode_question_reply", "Answer a pending OpenCode form. Supply one value per field, keyed by field key.", {
+    requestId: z.string().min(1),
+    sessionId: z.string().optional().describe("Session that owns the form; auto-detected from the pending form list when omitted"),
+    answer: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])),
+    directory: directoryParam,
+  }, async ({ requestId, sessionId, answer, directory }) => {
+    try {
+      directory = normalizeDirectory(directory);
+      const sid = await formSession(client, requestId, directory, sessionId);
+      return toolJson(await client.post(`/api/session/${encodeURIComponent(sid)}/form/${encodeURIComponent(requestId)}/reply`, { answer }, { directory }));
+    } catch (error) { return errorResult(error); }
   });
-  server.tool("opencode_question_reject", "Reject a pending OpenCode question explicitly.", {
-    requestId: z.string().min(1), directory: directoryParam,
-  }, async ({ requestId, directory }) => {
-    try { return toolJson(await client.post(`/question/${encodeURIComponent(requestId)}/reject`, undefined, { directory: normalizeDirectory(directory) })); }
-    catch (error) { return errorResult(error); }
+  server.tool("opencode_question_reject", "Dismiss a pending OpenCode form explicitly.", {
+    requestId: z.string().min(1),
+    sessionId: z.string().optional().describe("Session that owns the form; auto-detected from the pending form list when omitted"),
+    directory: directoryParam,
+  }, async ({ requestId, sessionId, directory }) => {
+    try {
+      directory = normalizeDirectory(directory);
+      const sid = await formSession(client, requestId, directory, sessionId);
+      return toolJson(await client.delete(`/api/session/${encodeURIComponent(sid)}/form/${encodeURIComponent(requestId)}`, undefined, directory));
+    } catch (error) { return errorResult(error); }
   });
   for (const action of ["get", "cancel"] as const) {
     server.tool(`opencode_job_${action}`, action === "get" ? "Observe a durable job by ID, including pending inputs and final results." : "Explicitly abort the OpenCode session owned by a job. This also stops other work in that session.", {

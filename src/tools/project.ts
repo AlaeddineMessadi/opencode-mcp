@@ -95,13 +95,13 @@ export function registerProjectTools(
     },
     async ({ directory }) => {
       try {
-        const raw = await client.get("/project", undefined, directory);
+        const raw = await client.get("/api/project", undefined, directory);
         const projects = Array.isArray(raw) ? raw as Array<Record<string, unknown>> : [];
         if (projects.length === 0) {
           return toolResult("No projects found.");
         }
         const lines = projects.map((p) => {
-          const worktree = (p.worktree ?? "?") as string;
+          const worktree = (p.canonical ?? p.worktree ?? "?") as string;
           const name = (worktree !== "?" ? worktree.split("/").filter(Boolean).pop() : undefined)
             ?? p.name ?? p.id ?? "(root)";
           const vcs = p.vcs ? ` [${p.vcs}]` : "";
@@ -183,7 +183,7 @@ export function registerProjectTools(
 
         // ── Register with OpenCode server (best-effort) ─────────────
         try {
-          await client.get("/project/current", undefined, realPath);
+          await client.get("/api/location", undefined, realPath);
         } catch (e) {
           console.error(
             `opencode_project_init: project ping failed for ${realPath}: ${e instanceof Error ? e.message : String(e)}`,
@@ -207,10 +207,19 @@ export function registerProjectTools(
     },
     async ({ directory }) => {
       try {
-        const raw = await client.get("/project/current", undefined, directory);
-        const p = raw as Record<string, unknown>;
-        if (p && typeof p === "object") {
-          return toolResult(formatProject(p));
+        // OpenCode 2.x exposes the active location (directory + project) via
+        // GET /api/location. `directory` scopes which project resolves.
+        const raw = await client.get("/api/location", undefined, directory);
+        const location = raw as Record<string, unknown>;
+        if (location && typeof location === "object") {
+          const project = (location.project ?? null) as Record<string, unknown> | null;
+          const dir = typeof location.directory === "string" ? location.directory : "?";
+          const lines = [`Directory: ${dir}`];
+          if (project) {
+            lines.push(`Project ID: ${project.id ?? "?"}`);
+            if (typeof project.directory === "string") lines.push(`Project directory: ${project.directory}`);
+          }
+          return toolResult(lines.join("\n"), false, { data: location });
         }
         return toolJson(raw);
       } catch (e) {
