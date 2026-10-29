@@ -8,7 +8,7 @@
 
 opencode-mcp connects Claude, Cursor, VS Code, and other MCP clients to OpenCode's headless API (OpenCode 2.x). Ask questions, implement features, monitor background work, respond to questions and permissions, and review changes across projects.
 
-> Version 4.0.0 requires an **OpenCode 2.x server** and **Node.js 22 or newer**. OpenCode 1.x servers are detected and rejected. Upgrading from 3.x? See the [migration notes](CHANGELOG.md#400---2026-10-22).
+> Version 4.x requires an **OpenCode 2.x server** (tested with 2.1.2 and 2.2.0) and **Node.js 22 or newer**. OpenCode 1.x servers are detected and rejected; OpenCode 1.x users stay on 3.x. Upgrading from 3.x? See the [migration notes](CHANGELOG.md#400---2026-10-22).
 
 ## Quick Start
 
@@ -88,6 +88,9 @@ An OpenCode 2.x server must already be running by default, and its password must
 |---|---|
 | `OPENCODE_BASE_URL` | Server endpoint; defaults to `http://127.0.0.1:4096` |
 | `OPENCODE_SERVER_USERNAME`, `OPENCODE_SERVER_PASSWORD` | Server HTTP Basic authentication; username defaults to `opencode`, password must match the server's |
+| `OPENCODE_SERVER_TOKEN` | Optional bearer token, e.g. an OpenChamber client token |
+| `OPENCODE_OPENCHAMBER_PASSWORD`, `OPENCODE_OPENCHAMBER_URL` | Sign in to an [OpenChamber](https://github.com/openchamber/openchamber)-fronted server |
+| `OPENCODE_OPENCHAMBER_CLIENT_ID` | Overrides the per-process OpenChamber client identifier; see [configuration](docs/configuration.md#openchamber) |
 | `OPENCODE_AUTO_SERVE` | Set to `true` to opt in to launching a local server with a generated private password |
 | `OPENCODE_DEFAULT_PROVIDER`, `OPENCODE_DEFAULT_MODEL` | Default prompt provider/model pair |
 | `OPENCODE_TOOL_PROFILE` | `full` (default) or a smaller `essential` tool set |

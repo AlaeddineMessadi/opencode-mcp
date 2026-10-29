@@ -199,6 +199,12 @@ describe("isServerRunning", () => {
     await isServerRunning("http://127.0.0.1:4096", "opencode", "secret123");
     expect(headersOf(1).Authorization).toBeUndefined();
   });
+
+  it("prefers an explicit Authorization header over Basic credentials", async () => {
+    route = () => json(serverInfo());
+    await isServerRunning("http://127.0.0.1:4096", "admin", "secret123", "Bearer oc_client_x");
+    expect(headersOf(0).Authorization).toBe("Bearer oc_client_x");
+  });
 });
 
 // ─── startServer ─────────────────────────────────────────────────────────

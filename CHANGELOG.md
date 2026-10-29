@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
 ## [4.0.0] - 2026-10-22
 
 ### Breaking changes
@@ -31,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `opencode_session_create` accepts optional `agent`, `providerID`, and `modelID`; `opencode_session_permission` accepts an optional `message`.
 - Health checks use `GET /api/info`. Events come from the single `/api/event` stream, scoped by directory for project polling and unscoped for global polling.
 - `OPENCODE_AUTO_SERVE=true` now spawns `opencode serve` directly with a randomly generated private password instead of using the SDK launcher.
+- The 3.1.0 OpenChamber sign-in and `OPENCODE_SERVER_TOKEN` bearer auth carry over and apply to API requests, the `/api/event` stream and the `/api/info` probe. They need OpenChamber 2.0 or newer, which fronts OpenCode 2.x and passes `/api/*` through unchanged.
 
 ### Removed
 
@@ -46,6 +49,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove `format` arguments from prompt calls and request the desired output shape in the prompt. Replace calls to removed tools; session todos are no longer exposed.
 - Update direct `opencode_question_reply` callers to send `answer: {"<field-key>": value}`. Use `opencode_question_list` to inspect field keys. `opencode_job_input` responses are unchanged.
 - Passing a model on a follow-up now changes the session's model for later turns, not only the current prompt.
+- OpenChamber users: upgrade to OpenChamber 2.0 or newer and drop the `/api` suffix from `OPENCODE_BASE_URL`.
+
+## [3.1.0] - 2026-10-29
+
+This release supports OpenCode 1.x only and was tested with OpenCode 1.19.3. OpenCode 2.x servers are not supported in 3.x; support is planned for 4.0.
+
+### Added
+
+- Bearer-token authentication with `OPENCODE_SERVER_TOKEN`. When set, it replaces Basic auth; `OPENCODE_OPENCHAMBER_PASSWORD` takes precedence over it.
+- OpenChamber sign-in with `OPENCODE_OPENCHAMBER_PASSWORD` (and optional `OPENCODE_OPENCHAMBER_URL`): exchanges the UI password for a client token, keeps it in memory, and renews it once on 401. Applies to API requests, event streams and the health probe. Each process gets a distinct client identifier by default (override with `OPENCODE_OPENCHAMBER_CLIENT_ID`), so independent MCP instances on the same host do not replace each other's token.
+
+### Fixed
+
+- Event streams (`opencode_events_poll`) now keep the `OPENCODE_BASE_URL` path prefix (e.g. OpenChamber's `/api` proxy). Previously they resolved against the origin and dropped it.
+- The smoke-test runner now forwards `OPENCODE_SERVER_TOKEN`, `OPENCODE_OPENCHAMBER_PASSWORD`, `OPENCODE_OPENCHAMBER_URL` and `OPENCODE_OPENCHAMBER_CLIENT_ID` to the smoke child.
+- A refused OpenChamber sign-in is no longer retried on every tool call, where it could reach OpenChamber's failure limit and lock out the UI. A rejected password is reported until restart. A rate limit waits for `Retry-After`. Other refusals wait 60 seconds. Network errors and 5xx responses are still retried. The same applies when OpenChamber accepts the password but issues no client token.
+
+### Security
+
+- Raise the minimum versions of `@modelcontextprotocol/core` and `@modelcontextprotocol/server` to 2.4.0 and of `zod` to 4.6.6. These address the published high-severity advisories GHSA-jm63-cq47-j5jp, GHSA-46jr-4wx8-v453, GHSA-f897-62hf-6gxq and GHSA-mrhx-c7xc-m3w5, and the medium-severity GHSA-rvq5-wwqv-78pq. `core` follows the exact version that `server` 2.4.0 pins. opencode-mcp uses stdio only, so the HTTP-transport advisories did not affect it; the new floors keep installs clear of them. Development dependencies are updated too; `npm audit` reports no advisories.
+
+### Documentation
+
+- State that 3.x needs OpenChamber 1.12 to 1.24 in front of OpenCode 1.x, and explain when to set a stable `OPENCODE_OPENCHAMBER_CLIENT_ID`.
 
 ## [3.0.0] - 2026-09-16
 

@@ -12,6 +12,8 @@ export interface ServerManagerOptions {
    */
   username?: string;
   password?: string;
+  /** Full `Authorization` header value; takes precedence over Basic credentials. */
+  authorization?: string;
 }
 
 export interface ServerStatus {
@@ -113,11 +115,12 @@ export async function isServerRunning(
   baseUrl: string,
   username?: string,
   password?: string,
+  authorization?: string,
 ): Promise<{ healthy: boolean; version?: string; authFailed?: boolean; legacy?: boolean }> {
   const base = baseUrl.replace(/\/$/, "");
   try {
     const headers: Record<string, string> = { Accept: "application/json" };
-    const authHeader = buildBasicAuthHeader(username, password);
+    const authHeader = authorization ?? buildBasicAuthHeader(username, password);
     if (authHeader) {
       headers["Authorization"] = authHeader;
     }
@@ -264,7 +267,7 @@ export async function ensureServer(
   const baseUrl = opts.baseUrl;
   const autoServe = opts.autoServe === true;
 
-  const existing = await isServerRunning(baseUrl, opts.username, opts.password);
+  const existing = await isServerRunning(baseUrl, opts.username, opts.password, opts.authorization);
   if (existing.healthy) {
     console.error(
       `OpenCode server already running at ${baseUrl} (v${existing.version ?? "unknown"})`,

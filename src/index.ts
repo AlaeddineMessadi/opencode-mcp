@@ -12,23 +12,28 @@ async function main() {
   const baseUrl = process.env.OPENCODE_BASE_URL ?? "http://127.0.0.1:4096";
   const username = process.env.OPENCODE_SERVER_USERNAME || "opencode";
   const password = process.env.OPENCODE_SERVER_PASSWORD;
+  const token = process.env.OPENCODE_SERVER_TOKEN || undefined;
+  const openchamberPassword = process.env.OPENCODE_OPENCHAMBER_PASSWORD || undefined;
+  const openchamberUrl = process.env.OPENCODE_OPENCHAMBER_URL || undefined;
+  const clientId = process.env.OPENCODE_OPENCHAMBER_CLIENT_ID || undefined;
   const autoServe = process.env.OPENCODE_AUTO_SERVE === "true";
   const profile = process.env.OPENCODE_TOOL_PROFILE ?? "full";
   if (profile !== "full" && profile !== "essential") throw new Error("OPENCODE_TOOL_PROFILE must be full or essential");
   setModelDefaults(process.env.OPENCODE_DEFAULT_PROVIDER, process.env.OPENCODE_DEFAULT_MODEL);
   registerShutdownHandlers();
+  const client = new OpenCodeClient({ baseUrl, username, password, token, openchamberPassword, openchamberUrl, clientId, autoServe });
   // Resolve the server (and, for auto-serve, its generated password) before
-  // building the client so the first request is already authenticated.
+  // serving so the first request is already authenticated.
   let effectiveUrl = baseUrl;
-  let effectivePassword = password;
   try {
-    const status = await ensureServer({ baseUrl, autoServe, username, password });
+    const status = await ensureServer({ baseUrl, autoServe, username, password, authorization: await client.getAuthorization() });
     if (status.url) effectiveUrl = status.url;
-    if (status.password) effectivePassword = status.password;
+    if (status.password) client.adoptServer(effectiveUrl, status.password);
   } catch (error) { console.error(`Warning: ${error instanceof Error ? error.message : String(error)}`); }
-  const client = new OpenCodeClient({ baseUrl: effectiveUrl, username, password: effectivePassword, autoServe });
-  // Hash the configured password, not a generated auto-serve one, so durable jobs stay visible across restarts.
-  const scope = createHash("sha256").update(JSON.stringify([effectiveUrl, username, password ?? ""])).digest("hex");
+  // Hash the configured credentials, not a generated auto-serve password, so durable jobs stay visible across restarts.
+  const identity: unknown[] = [effectiveUrl, username, password ?? ""];
+  if (token || openchamberPassword) identity.push(token ?? "", openchamberPassword ?? "", openchamberUrl ?? "");
+  const scope = createHash("sha256").update(JSON.stringify(identity)).digest("hex");
   const jobs = new JobService(client, { storeRoot: process.env.OPENCODE_TASK_STORE, scope });
   serveStdio(() => createServer(client, jobs, profile), {
     legacy: "serve", transport: new TaskTransport(new StdioServerTransport(), jobs),

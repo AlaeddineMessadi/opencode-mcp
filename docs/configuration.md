@@ -9,6 +9,10 @@ An OpenCode 2.x server must already be running unless automatic startup is expli
 | `OPENCODE_BASE_URL` | `http://127.0.0.1:4096` | OpenCode HTTP endpoint |
 | `OPENCODE_SERVER_USERNAME` | `opencode` | HTTP Basic authentication username |
 | `OPENCODE_SERVER_PASSWORD` | unset | HTTP Basic authentication password; must match the external server's password. Ignored for a server started with `OPENCODE_AUTO_SERVE` |
+| `OPENCODE_SERVER_TOKEN` | unset | Bearer token sent as `Authorization: Bearer <token>`; replaces Basic auth |
+| `OPENCODE_OPENCHAMBER_PASSWORD` | unset | OpenChamber UI password, exchanged for a client token; see below |
+| `OPENCODE_OPENCHAMBER_URL` | origin of `OPENCODE_BASE_URL` | OpenChamber origin that serves `/auth/session` |
+| `OPENCODE_OPENCHAMBER_CLIENT_ID` | random per process | Overrides the identifier that scopes this instance's OpenChamber client record; see below |
 | `OPENCODE_AUTO_SERVE` | `false` | Set exactly `true` to allow a local child server to start |
 | `OPENCODE_DEFAULT_PROVIDER` | unset | Default prompt provider ID |
 | `OPENCODE_DEFAULT_MODEL` | unset | Default prompt model ID; configure both defaults together |
@@ -24,6 +28,22 @@ OpenCode 2.x always enforces HTTP Basic authentication. For an external server, 
 The `essential` profile keeps the common delegation, observation, and required-input workflows available with fewer tool definitions. Select `full` for low-level API tools or provider administration. The profile is a discovery choice, not a security boundary: coding workflows can still modify files or run commands through OpenCode according to its permissions.
 
 Job records hold local operational metadata and results, independent of OpenCode's session storage. The default root is `$XDG_STATE_HOME/opencode-mcp/tasks` (falling back to `~/.local/state/opencode-mcp/tasks`); Windows uses `%LOCALAPPDATA%/opencode-mcp/tasks`. Records are partitioned by server and caller scope. Records expire 24 hours after creation; expiry removes the handle and does not abort the OpenCode session. Keep the task store private to your user account and persist it if the MCP process is ephemeral. See [architecture](architecture.md) for recovery behavior and retention.
+
+## OpenChamber
+
+[OpenChamber](https://github.com/openchamber/openchamber) fronts OpenCode and rejects Basic auth. Point `OPENCODE_BASE_URL` at the OpenChamber origin and choose one credential:
+
+> opencode-mcp 4.x speaks the OpenCode 2.x API, so it needs OpenChamber 2.0 or newer, which fronts OpenCode 2.x and passes its `/api/*` routes through unchanged. opencode-mcp 3.x speaks the OpenCode 1.x API and needs OpenChamber 1.12 to 1.24 (1.x proxies OpenCode under `/api`, so 3.x sets `OPENCODE_BASE_URL` to `https://openchamber.example.com/api`).
+
+- `OPENCODE_OPENCHAMBER_PASSWORD`: on first use, opencode-mcp posts the UI password to `/auth/session` and receives a trusted-device client token (7 days by default). The token is kept in memory only. When a request is rejected with 401, it signs in once more and resends that request; the rejected request never reached OpenCode, so writes are not duplicated. Each MCP process gets its own client entry in OpenChamber's client list, keyed by a random identifier generated at startup, so independent MCP instances on the same host (e.g. two editor windows) never replace each other's token. Because the identifier is new on every start, each restart adds another trusted-device entry that stays valid until it expires. If your MCP client restarts the server often, set `OPENCODE_OPENCHAMBER_CLIENT_ID` to a stable value so restarts reuse one entry. Use a different value for each concurrent instance, because instances that share a value replace each other's token.
+- `OPENCODE_SERVER_TOKEN`: a client token you minted yourself. It is not renewed; replace it when it expires or is revoked.
+
+```bash
+OPENCODE_BASE_URL=https://openchamber.example.com
+OPENCODE_OPENCHAMBER_PASSWORD=...   # keep in your MCP client's secret store
+```
+
+OpenChamber rate-limits failed sign-ins. After 10 failures with less than 5 minutes between them, it locks out the client IP for 15 minutes, and that includes the UI from the same IP. To stay clear of this, opencode-mcp does not post a rejected password again until it is restarted. When rate limited, it waits for the `Retry-After` period. Other refusals are held for 60 seconds. Network errors and 5xx responses never reached OpenChamber's limiter, so the next call tries again. Treat the password and tokens as secrets: they grant the same access as the OpenChamber UI.
 
 ## Project Scope
 

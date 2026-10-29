@@ -1,6 +1,7 @@
 import { createOpencodeClient, OpencodeClient as NativeClient } from "@opencode-ai/sdk/v2/client";
 import { normalizeDirectory } from "./helpers.js";
 import { ensureServer, isServerRunning } from "./server-manager.js";
+import { AuthProvider } from "./auth.js";
 import { createRequestContext, abortableSleep, throwIfAborted, withAbort, type RequestOptions } from "./async.js";
 export type { RequestOptions } from "./async.js";
 
@@ -8,6 +9,14 @@ export interface OpenCodeClientOptions {
   baseUrl: string;
   username?: string;
   password?: string;
+  /** Static bearer token (`OPENCODE_SERVER_TOKEN`). */
+  token?: string;
+  /** OpenChamber UI password (`OPENCODE_OPENCHAMBER_PASSWORD`). */
+  openchamberPassword?: string;
+  /** OpenChamber origin (`OPENCODE_OPENCHAMBER_URL`). */
+  openchamberUrl?: string;
+  /** Overrides the per-process OpenChamber dedupe scope (`OPENCODE_OPENCHAMBER_CLIENT_ID`). */
+  clientId?: string;
   autoServe?: boolean;
 }
 
@@ -83,12 +92,6 @@ function isConnectionError(err: Error): boolean {
   );
 }
 
-function buildBasicAuthHeader(username?: string, password?: string): string | undefined {
-  if (!password) return undefined;
-  const user = username ?? "opencode";
-  return "Basic " + Buffer.from(`${user}:${password}`).toString("base64");
-}
-
 export class OpenCodeClient {
   public api: NativeClient;
   private baseUrl: string;
@@ -96,20 +99,28 @@ export class OpenCodeClient {
   private reconnectAttempts = 0;
   private username?: string;
   private password?: string;
+  private auth: AuthProvider;
 
   constructor(options: OpenCodeClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
     this.autoServe = options.autoServe ?? false;
     this.username = options.username;
     this.password = options.password;
+    this.auth = new AuthProvider(options, this.baseUrl);
 
     this.api = this.buildSdkClient();
   }
 
-  /** Credentials for a server started by this process (auto-serve). */
-  adoptCredentials(password: string): void {
-    if (this.password === password) return;
-    this.password = password;
+  /**
+   * Target a server started by this process (auto-serve). It only accepts its
+   * generated Basic password, so that replaces any configured token or sign-in.
+   */
+  adoptServer(url: string, password?: string): void {
+    this.baseUrl = url.replace(/\/$/, "");
+    if (password) {
+      this.password = password;
+      this.auth = new AuthProvider({ username: this.username, password }, this.baseUrl);
+    }
     this.api = this.buildSdkClient();
   }
 
@@ -119,16 +130,17 @@ export class OpenCodeClient {
    * surfaces a different URL than the one we were aiming at.
    */
   private buildSdkClient(): NativeClient {
-    const headers: Record<string, string> = {};
-    const authHeader = buildBasicAuthHeader(this.username, this.password);
-    if (authHeader) {
-      headers["Authorization"] = authHeader;
-    }
-    return createOpencodeClient({ baseUrl: this.baseUrl, headers });
+    // The v2 SDK types `fetch` as `typeof fetch` but always calls it with a single Request.
+    return createOpencodeClient({ baseUrl: this.baseUrl, fetch: ((request: Request) => this.auth.fetch(request)) as typeof fetch });
   }
 
   getBaseUrl(): string {
     return this.baseUrl;
+  }
+
+  /** Current `Authorization` header value; signs in to OpenChamber when configured. */
+  getAuthorization(): Promise<string | undefined> {
+    return this.auth.getHeader();
   }
 
   private async request<T = unknown>(
@@ -190,23 +202,15 @@ export class OpenCodeClient {
         this.reconnectAttempts++;
         console.error(`Connection failed (attempt ${this.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}), attempting server reconnection...`);
         try {
-          const status = await withAbort(isServerRunning(this.baseUrl, this.username, this.password), context.signal);
+          const authorization = await withAbort(this.auth.getHeader(), context.signal);
+          const status = await withAbort(isServerRunning(this.baseUrl, this.username, this.password, authorization), context.signal);
           if (!status.healthy) {
             throwIfAborted(context.signal);
             const ensured = await withAbort(ensureServer({
-              baseUrl: this.baseUrl, autoServe: true, username: this.username, password: this.password,
+              baseUrl: this.baseUrl, autoServe: true, username: this.username, password: this.password, authorization,
             }), context.signal);
-            if (ensured.url) {
-              const nextUrl = ensured.url.replace(/\/$/, "");
-              if (nextUrl !== this.baseUrl) {
-                this.baseUrl = nextUrl;
-              }
-              // A server started by ensureServer carries its own generated password.
-              if (ensured.password && ensured.password !== this.password) {
-                this.password = ensured.password;
-              }
-              this.api = this.buildSdkClient();
-            }
+            // A server started by ensureServer carries its own generated password.
+            if (ensured.url) this.adoptServer(ensured.url, ensured.password);
           }
           return await this.request<T>(method, path, { ...opts, signal: context.signal, deadline: context.deadline });
         } catch (e) {
@@ -247,18 +251,20 @@ export class OpenCodeClient {
   }
 
   async *subscribeSSE(path: string, opts: RequestOptions & { directory?: string } = {}): AsyncGenerator<{ event: string; data: string }, void, undefined> {
-    const url = new URL(path, this.baseUrl).toString();
+    // `new URL(path, this.baseUrl)` resolves an absolute `path` against the
+    // origin, discarding any base path (e.g. OpenChamber's `/api` proxy
+    // prefix). Join on the string form of baseUrl instead, which already has
+    // its trailing slash stripped in the constructor.
+    const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = { Accept: "text/event-stream", "Cache-Control": "no-cache" };
     const normalized = normalizeDirectory(opts.directory);
     if (normalized) headers["x-opencode-directory"] = normalized;
-    const authHeader = buildBasicAuthHeader(this.username, this.password);
-    if (authHeader) headers["Authorization"] = authHeader;
     const context = createRequestContext(opts, 30_000);
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     const cancelReader = () => { void reader?.cancel().catch(() => {}); };
     try {
       throwIfAborted(context.signal);
-      const res = await withAbort(fetch(url, { method: "GET", headers, signal: context.signal }), context.signal);
+      const res = await withAbort(this.auth.fetch(new Request(url, { method: "GET", headers, signal: context.signal })), context.signal);
       if (!res.ok) {
         const text = await withAbort(res.text(), context.signal);
         throw new OpenCodeError(`SSE ${path} failed (${res.status}): ${text}`, res.status, "GET", path, text);

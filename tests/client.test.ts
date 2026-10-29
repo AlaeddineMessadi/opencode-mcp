@@ -19,10 +19,10 @@ vi.mock("../src/server-manager.js", () => ({
  * (both the one in the `OpenCodeClient` constructor and the one issued by
  * `buildSdkClient` during reconnect) returns the next queued factory output.
  * Every call is recorded with its options, so tests can observe the URL and
- * Authorization header each rebuilt SDK client targets.
+ * the authenticating `fetch` each rebuilt SDK client uses.
  */
 const sdkClientFactory = vi.hoisted(() => {
-  type Opts = { baseUrl: string; headers?: Record<string, string> };
+  type Opts = { baseUrl: string; headers?: Record<string, string>; fetch?: (request: Request) => Promise<Response> };
   const factories: Array<(opts: Opts) => unknown> = [];
   const created: Opts[] = [];
   return {
@@ -445,16 +445,16 @@ describe("reconnect path", () => {
     await client.get("/api/info");
 
     // The probe and ensureServer are called with the credentials held at the time.
-    expect(isServerRunningMock).toHaveBeenCalledWith("http://localhost:4096", "opencode", "stale");
-    expect(ensureServerMock).toHaveBeenCalledWith(expect.objectContaining({ autoServe: true, password: "stale" }));
-    // The rebuilt SDK client authenticates with the new password...
-    expect(sdkClientFactory.created.at(-1)!.headers).toEqual({ Authorization: "Basic " + Buffer.from("opencode:generated-pw").toString("base64") });
+    const stale = "Basic " + Buffer.from("opencode:stale").toString("base64");
+    expect(isServerRunningMock).toHaveBeenCalledWith("http://localhost:4096", "opencode", "stale", stale);
+    expect(ensureServerMock).toHaveBeenCalledWith(expect.objectContaining({ autoServe: true, password: "stale", authorization: stale }));
 
-    // ...and so does the raw SSE path, which builds its own header.
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("data: {}\n\n", { status: 200 }));
+    // The rebuilt SDK client and the raw SSE path both authenticate with the new password.
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response("data: {}\n\n", { status: 200 }));
+    await sdkClientFactory.created.at(-1)!.fetch!(new Request("http://localhost:4096/api/info"));
     for await (const _ of client.subscribeSSE("/api/event")) break;
-    expect((fetchSpy.mock.calls[0][1]!.headers as Record<string, string>).Authorization)
-      .toBe("Basic " + Buffer.from("opencode:generated-pw").toString("base64"));
+    const generated = "Basic " + Buffer.from("opencode:generated-pw").toString("base64");
+    expect(fetchSpy.mock.calls.map(([request]) => (request as Request).headers.get("authorization"))).toEqual([generated, generated]);
   });
 
   it("does not call ensureServer when the server is reachable again", async () => {
@@ -619,14 +619,21 @@ describe("subscribeSSE", () => {
     const fetchSpy = installFakeFetch("");
     const client = new OpenCodeClient({ baseUrl: "http://localhost:4096", password: "pw" });
     for await (const _ of client.subscribeSSE("/api/event", { directory: "/repo" })) { /* drain */ }
-    const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe("http://localhost:4096/api/event");
-    expect(init!.headers).toEqual({
-      Accept: "text/event-stream",
-      "Cache-Control": "no-cache",
+    const request = fetchSpy.mock.calls[0][0] as Request;
+    expect(request.url).toBe("http://localhost:4096/api/event");
+    expect(Object.fromEntries(request.headers)).toEqual({
+      accept: "text/event-stream",
+      "cache-control": "no-cache",
       "x-opencode-directory": "/repo",
-      Authorization: "Basic " + Buffer.from("opencode:pw").toString("base64"),
+      authorization: "Basic " + Buffer.from("opencode:pw").toString("base64"),
     });
+  });
+
+  it("keeps the base URL path prefix", async () => {
+    const fetchSpy = installFakeFetch("");
+    const client = new OpenCodeClient({ baseUrl: "http://localhost:4096/prefix/" });
+    for await (const _ of client.subscribeSSE("/api/event")) { /* drain */ }
+    expect((fetchSpy.mock.calls[0][0] as Request).url).toBe("http://localhost:4096/prefix/api/event");
   });
 
   it("surfaces a 401 as an auth OpenCodeError", async () => {
