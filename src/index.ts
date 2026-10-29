@@ -32,6 +32,6 @@ async function main() {
     legacy: "serve", transport: new TaskTransport(new StdioServerTransport(), jobs),
     onerror: error => console.error("MCP transport error:", error.message),
   });
-  console.error(`opencode-mcp v3.0.0 started (profile: ${profile})`);
+  console.error(`opencode-mcp v3.1.0 started (profile: ${profile})`);
 }
 main().catch(error => { console.error("Fatal error starting opencode-mcp:", error); process.exitCode = 1; });

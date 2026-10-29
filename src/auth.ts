@@ -46,10 +46,10 @@ export class AuthProvider {
    * Identifies this MCP instance to OpenChamber. Stable for the lifetime of
    * the provider (and thus reused for every renewal), but unique per
    * instance so a second independent MCP instance on the same host cannot
-   * replace this one's client record: OpenChamber v2.4.0 revokes the
-   * previous client record whenever a login reuses a `dedupeKey` (see
-   * https://github.com/openchamber/openchamber/blob/v2.4.0/packages/web/
-   * server/lib/client-auth/remote-clients.js#L188-L200), so a key derived
+   * replace this one's client record: OpenChamber (1.12 and later) revokes
+   * the previous client record whenever a login reuses a `dedupeKey` (see
+   * https://github.com/openchamber/openchamber/blob/v1.24.2/packages/web/
+   * server/lib/client-auth/remote-clients.js), so a key derived
    * only from `hostname()` let a second MCP process silently invalidate the
    * first one's cached token. Override with `OPENCODE_OPENCHAMBER_CLIENT_ID`
    * when two instances must intentionally share one client record, e.g.
