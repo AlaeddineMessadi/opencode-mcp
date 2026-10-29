@@ -13,18 +13,18 @@ This release supports OpenCode 1.x only and was tested with OpenCode 1.19.3. Ope
 
 ### Added
 
-- Bearer-token authentication with `OPENCODE_SERVER_TOKEN`.
+- Bearer-token authentication with `OPENCODE_SERVER_TOKEN`. When set, it replaces Basic auth; `OPENCODE_OPENCHAMBER_PASSWORD` takes precedence over it.
 - OpenChamber sign-in with `OPENCODE_OPENCHAMBER_PASSWORD` (and optional `OPENCODE_OPENCHAMBER_URL`): exchanges the UI password for a client token, keeps it in memory, and renews it once on 401. Applies to API requests, event streams and the health probe. Each process gets a distinct client identifier by default (override with `OPENCODE_OPENCHAMBER_CLIENT_ID`), so independent MCP instances on the same host do not replace each other's token.
 
 ### Fixed
 
-- Event streams (`opencode_events_poll`) preserved the `OPENCODE_BASE_URL` path prefix (e.g. OpenChamber's `/api` proxy) instead of resolving against the origin alone.
+- Event streams (`opencode_events_poll`) now keep the `OPENCODE_BASE_URL` path prefix (e.g. OpenChamber's `/api` proxy). Previously they resolved against the origin and dropped it.
 - The smoke-test runner now forwards `OPENCODE_SERVER_TOKEN`, `OPENCODE_OPENCHAMBER_PASSWORD`, `OPENCODE_OPENCHAMBER_URL` and `OPENCODE_OPENCHAMBER_CLIENT_ID` to the smoke child.
 - A refused OpenChamber sign-in is no longer retried on every tool call, where it could reach OpenChamber's failure limit and lock out the UI. A rejected password is reported until restart. A rate limit waits for `Retry-After`. Other refusals wait 60 seconds. Network errors and 5xx responses are still retried. The same applies when OpenChamber accepts the password but issues no client token.
 
 ### Security
 
-- Raise the minimum versions of `@modelcontextprotocol/core` and `@modelcontextprotocol/server` to 2.4.0 and of `zod` to 4.6.6. These address the published high-severity advisories GHSA-jm63-cq47-j5jp, GHSA-46jr-4wx8-v453, GHSA-f897-62hf-6gxq and GHSA-mrhx-c7xc-m3w5, and the medium-severity GHSA-rvq5-wwqv-78pq. `core` follows the exact version that `server` 2.4.0 pins. Development dependencies are updated too; `npm audit` reports no advisories.
+- Raise the minimum versions of `@modelcontextprotocol/core` and `@modelcontextprotocol/server` to 2.4.0 and of `zod` to 4.6.6. These address the published high-severity advisories GHSA-jm63-cq47-j5jp, GHSA-46jr-4wx8-v453, GHSA-f897-62hf-6gxq and GHSA-mrhx-c7xc-m3w5, and the medium-severity GHSA-rvq5-wwqv-78pq. `core` follows the exact version that `server` 2.4.0 pins. opencode-mcp uses stdio only, so the HTTP-transport advisories did not affect it; the new floors keep installs clear of them. Development dependencies are updated too; `npm audit` reports no advisories.
 
 ### Documentation
 
