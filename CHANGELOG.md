@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-10-29
+
+This release supports OpenCode 1.x only and was tested with OpenCode 1.19.3. OpenCode 2.x servers are not supported in 3.x; support is planned for 4.0.
+
 ### Added
 
 - Bearer-token authentication with `OPENCODE_SERVER_TOKEN`.
