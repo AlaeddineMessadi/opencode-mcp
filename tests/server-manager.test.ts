@@ -164,6 +164,14 @@ describe("isServerRunning", () => {
     // base64("opencode:secret123") === "b3BlbmNvZGU6c2VjcmV0MTIz"
     expect(headers.Authorization).toBe("Basic b3BlbmNvZGU6c2VjcmV0MTIz");
   });
+
+  it("prefers an explicit Authorization header over Basic credentials", async () => {
+    mockFetchHealthy();
+    await isServerRunning("http://127.0.0.1:4096", "admin", "secret123", "Bearer oc_client_x");
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    const headers = (init.headers ?? {}) as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer oc_client_x");
+  });
 });
 
 // ─── startServer ─────────────────────────────────────────────────────────

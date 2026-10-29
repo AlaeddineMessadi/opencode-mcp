@@ -12,15 +12,21 @@ async function main() {
   const baseUrl = process.env.OPENCODE_BASE_URL ?? "http://127.0.0.1:4096";
   const username = process.env.OPENCODE_SERVER_USERNAME;
   const password = process.env.OPENCODE_SERVER_PASSWORD;
+  const token = process.env.OPENCODE_SERVER_TOKEN || undefined;
+  const openchamberPassword = process.env.OPENCODE_OPENCHAMBER_PASSWORD || undefined;
+  const openchamberUrl = process.env.OPENCODE_OPENCHAMBER_URL || undefined;
+  const clientId = process.env.OPENCODE_OPENCHAMBER_CLIENT_ID || undefined;
   const autoServe = process.env.OPENCODE_AUTO_SERVE === "true";
   const profile = process.env.OPENCODE_TOOL_PROFILE ?? "full";
   if (profile !== "full" && profile !== "essential") throw new Error("OPENCODE_TOOL_PROFILE must be full or essential");
   setModelDefaults(process.env.OPENCODE_DEFAULT_PROVIDER, process.env.OPENCODE_DEFAULT_MODEL);
   registerShutdownHandlers();
-  const client = new OpenCodeClient({ baseUrl, username, password, autoServe });
-  const scope = createHash("sha256").update(JSON.stringify([baseUrl, username ?? "opencode", password ?? ""])).digest("hex");
+  const client = new OpenCodeClient({ baseUrl, username, password, token, openchamberPassword, openchamberUrl, clientId, autoServe });
+  const identity: unknown[] = [baseUrl, username ?? "opencode", password ?? ""];
+  if (token || openchamberPassword) identity.push(token ?? "", openchamberPassword ?? "", openchamberUrl ?? "");
+  const scope = createHash("sha256").update(JSON.stringify(identity)).digest("hex");
   const jobs = new JobService(client, { storeRoot: process.env.OPENCODE_TASK_STORE, scope });
-  try { await ensureServer({ baseUrl, autoServe, username, password }); }
+  try { await ensureServer({ baseUrl, autoServe, username, password, authorization: await client.getAuthorization() }); }
   catch (error) { console.error(`Warning: ${error instanceof Error ? error.message : String(error)}`); }
   serveStdio(() => createServer(client, jobs, profile), {
     legacy: "serve", transport: new TaskTransport(new StdioServerTransport(), jobs),
