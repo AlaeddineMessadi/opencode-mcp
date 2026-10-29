@@ -16,6 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Event streams (`opencode_events_poll`) preserved the `OPENCODE_BASE_URL` path prefix (e.g. OpenChamber's `/api` proxy) instead of resolving against the origin alone.
 - The smoke-test runner now forwards `OPENCODE_SERVER_TOKEN`, `OPENCODE_OPENCHAMBER_PASSWORD`, `OPENCODE_OPENCHAMBER_URL` and `OPENCODE_OPENCHAMBER_CLIENT_ID` to the smoke child.
+- A refused OpenChamber sign-in is no longer retried on every tool call, where it could reach OpenChamber's failure limit and lock out the UI. A rejected password is reported until restart. A rate limit waits for `Retry-After`. Other refusals wait 60 seconds. Network errors and 5xx responses are still retried. The same applies when OpenChamber accepts the password but issues no client token.
+
+### Security
+
+- Raise the minimum versions of `@modelcontextprotocol/core` and `@modelcontextprotocol/server` to 2.4.0 and of `zod` to 4.6.6. These address the published high-severity advisories GHSA-jm63-cq47-j5jp, GHSA-46jr-4wx8-v453, GHSA-f897-62hf-6gxq and GHSA-mrhx-c7xc-m3w5, and the medium-severity GHSA-rvq5-wwqv-78pq. `core` follows the exact version that `server` 2.4.0 pins. Development dependencies are updated too; `npm audit` reports no advisories.
+
+### Documentation
+
+- State that 3.x needs OpenChamber 1.12 to 1.24 in front of OpenCode 1.x, and explain when to set a stable `OPENCODE_OPENCHAMBER_CLIENT_ID`.
 
 ## [3.0.0] - 2026-09-16
 

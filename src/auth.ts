@@ -21,6 +21,8 @@ export interface AuthOptions {
 }
 
 const LOGIN_TIMEOUT_MS = 15_000;
+/** How long a refused sign-in is reported again when OpenChamber gives no better hint. */
+const LOGIN_COOLDOWN_MS = 60_000;
 
 /**
  * Resolves the `Authorization` header for OpenCode requests.
@@ -32,6 +34,13 @@ const LOGIN_TIMEOUT_MS = 15_000;
 export class AuthProvider {
   private token?: string;
   private login?: Promise<string>;
+  /**
+   * The last sign-in OpenChamber refused. Every tool call and client retry
+   * would otherwise post the password again. OpenChamber locks out the client
+   * IP, UI included, for 15 minutes after 10 failures with less than 5 minutes
+   * between them.
+   */
+  private failure?: { error: Error; until: number };
 
   /**
    * Identifies this MCP instance to OpenChamber. Stable for the lifetime of
@@ -80,8 +89,14 @@ export class AuthProvider {
   }
 
   private signIn(): Promise<string> {
+    if (this.failure && Date.now() < this.failure.until) return Promise.reject(this.failure.error);
     this.login ??= this.requestClientToken().then(
-      (token) => { this.token = token; return token; },
+      (token) => { this.failure = undefined; this.token = token; return token; },
+      (error) => {
+        // Network errors and 5xx never reached OpenChamber's limiter, so the next call retries.
+        if (error instanceof LoginRejected) this.failure = { error, until: Date.now() + error.cooldownMs };
+        throw error;
+      },
     ).finally(() => { this.login = undefined; });
     return this.login;
   }
@@ -109,16 +124,24 @@ export class AuthProvider {
       throw new Error(`OpenChamber login to ${origin} failed: ${error instanceof Error ? error.message : String(error)}`);
     }
     if (res.status === 429) {
-      const retryAfter = res.headers.get("retry-after");
-      throw new Error(`OpenChamber login to ${origin} is rate limited${retryAfter ? `; retry after ${retryAfter}s` : ""}`);
+      const waitMs = retryAfterMs(res.headers.get("retry-after"));
+      throw new LoginRejected(`OpenChamber login to ${origin} is rate limited; retry after ${Math.ceil(waitMs / 1000)}s`, waitMs);
     }
     if (res.status === 401) {
-      throw new Error(`OpenChamber login to ${origin} was rejected; check OPENCODE_OPENCHAMBER_PASSWORD`);
+      // The password comes from the environment, so retrying before a restart can only add failures.
+      throw new LoginRejected(
+        `OpenChamber login to ${origin} was rejected; check OPENCODE_OPENCHAMBER_PASSWORD and restart opencode-mcp`,
+        Infinity,
+      );
     }
-    if (!res.ok) throw new Error(`OpenChamber login to ${origin} failed (${res.status})`);
+    if (res.status >= 500) throw new Error(`OpenChamber login to ${origin} failed (${res.status})`);
+    if (!res.ok) throw new LoginRejected(`OpenChamber login to ${origin} failed (${res.status})`);
     const body = await res.json().catch(() => undefined) as { clientToken?: unknown } | undefined;
     if (typeof body?.clientToken !== "string" || !body.clientToken) {
-      throw new Error(`OpenChamber at ${origin} did not issue a client token; upgrade OpenChamber or set OPENCODE_SERVER_TOKEN`);
+      throw new LoginRejected(
+        `OpenChamber at ${origin} did not issue a client token; upgrade OpenChamber or set OPENCODE_SERVER_TOKEN`,
+        Infinity,
+      );
     }
     return body.clientToken;
   }
@@ -138,6 +161,21 @@ export class AuthProvider {
     await response.body?.cancel().catch(() => {});
     return fetch(withAuthorization(retry, renewed));
   }
+}
+
+/** A sign-in OpenChamber answered and refused, so repeating it within `cooldownMs` would fail the same way. */
+class LoginRejected extends Error {
+  constructor(message: string, readonly cooldownMs = LOGIN_COOLDOWN_MS) {
+    super(message);
+  }
+}
+
+/** Parses `Retry-After` (seconds or an HTTP date); missing, invalid or past values fall back to the default cooldown. */
+export function retryAfterMs(value: string | null): number {
+  if (!value) return LOGIN_COOLDOWN_MS;
+  const seconds = Number(value);
+  const ms = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(value) - Date.now();
+  return Number.isFinite(ms) && ms > 0 ? ms : LOGIN_COOLDOWN_MS;
 }
 
 function withAuthorization(request: Request, header: string | undefined): Request {

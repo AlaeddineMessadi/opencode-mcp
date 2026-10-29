@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createServer, type Server } from "node:http";
 import { OpenCodeClient, OpenCodeError } from "../src/client.js";
 import { ensureServer } from "../src/server-manager.js";
+import { retryAfterMs } from "../src/auth.js";
 import { registerEventTools } from "../src/tools/events.js";
 
 const PASSWORD = "fixture-ui-password";
@@ -42,6 +43,7 @@ describe("OpenChamber authentication", () => {
         const body = JSON.parse(raw);
         logins.push(body);
         if (loginStatus === 429) return send(429, { error: "Too many login attempts" }, { "retry-after": "900" });
+        if (loginStatus === 503) return send(503, { error: "Starting" });
         if (body.password !== PASSWORD) return send(401, { error: "Invalid credentials" });
         const previous = tokenByDedupeKey.get(body.dedupeKey);
         if (previous) valid.delete(previous);
@@ -156,6 +158,64 @@ describe("OpenChamber authentication", () => {
   it("reports rate limiting", async () => {
     loginStatus = 429;
     await expect(openchamberClient().get("/session")).rejects.toThrow(/rate limited; retry after 900s/);
+  });
+
+  describe("rejected sign-ins", () => {
+    let now: number;
+    beforeEach(() => {
+      now = Math.floor(Date.now() / 1000) * 1000; // HTTP dates have whole seconds
+      vi.spyOn(Date, "now").mockImplementation(() => now);
+    });
+    afterEach(() => { vi.restoreAllMocks(); });
+
+    it("does not post a rejected password again before a restart", async () => {
+      const client = openchamberClient({ openchamberPassword: "wrong-secret" });
+      await expect(client.get("/session")).rejects.toThrow(/OPENCODE_OPENCHAMBER_PASSWORD and restart/);
+      now += 24 * 60 * 60_000;
+      await expect(client.get("/session")).rejects.toThrow(/OPENCODE_OPENCHAMBER_PASSWORD/);
+      expect(logins).toHaveLength(1);
+    });
+
+    it("waits out Retry-After when rate limited, then signs in", async () => {
+      loginStatus = 429;
+      const client = openchamberClient();
+      await expect(client.get("/session")).rejects.toThrow(/rate limited; retry after 900s/);
+      loginStatus = 200;
+      now += 899_000;
+      await expect(client.get("/session")).rejects.toThrow(/rate limited/);
+      expect(logins).toHaveLength(1);
+      now += 1_001;
+      await client.get("/session");
+      expect(logins).toHaveLength(2);
+    });
+
+    it("retries straight away after a 5xx, which never reached OpenChamber's limiter", async () => {
+      loginStatus = 503;
+      const client = openchamberClient();
+      await expect(client.get("/session")).rejects.toThrow(/failed \(503\)/);
+      loginStatus = 200;
+      await client.get("/session");
+      expect(logins).toHaveLength(2);
+    });
+
+    it("retries straight away after a network error", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+      const signIns = () => fetchSpy.mock.calls.filter(([input]) => String(input).endsWith("/auth/session")).length;
+      const client = openchamberClient({ openchamberUrl: "http://127.0.0.1:1" });
+      await expect(client.get("/session")).rejects.toThrow(/OpenChamber login to .* failed/);
+      const first = signIns();
+      expect(first).toBeGreaterThan(0);
+      await expect(client.get("/session")).rejects.toThrow(/OpenChamber login to .* failed/);
+      expect(signIns()).toBeGreaterThan(first);
+    });
+
+    it("parses Retry-After seconds and dates, falling back to 60s", () => {
+      expect(retryAfterMs("120")).toBe(120_000);
+      expect(retryAfterMs(new Date(now + 300_000).toUTCString())).toBe(300_000);
+      for (const value of [null, "", "0", "-5", "abc", new Date(now - 1_000).toUTCString()]) {
+        expect(retryAfterMs(value)).toBe(60_000);
+      }
+    });
   });
 
   it("uses OPENCODE_OPENCHAMBER_URL for login when the API lives elsewhere", async () => {

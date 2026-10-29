@@ -29,7 +29,9 @@ Job records hold local operational metadata and results, independent of OpenCode
 
 [OpenChamber](https://github.com/openchamber/openchamber) proxies OpenCode under `/api` and rejects Basic auth. Point `OPENCODE_BASE_URL` at the proxy and choose one credential:
 
-- `OPENCODE_OPENCHAMBER_PASSWORD`: on first use, opencode-mcp posts the UI password to `/auth/session` and receives a trusted-device client token (7 days by default). The token is kept in memory only. When a request is rejected with 401, it signs in once more and resends that request; the rejected request never reached OpenCode, so writes are not duplicated. Each MCP process gets its own client entry in OpenChamber's client list, keyed by a random identifier generated at startup, so independent MCP instances on the same host (e.g. two editor windows) never replace each other's token. Set `OPENCODE_OPENCHAMBER_CLIENT_ID` to a stable value only if you deliberately want multiple processes to share one client entry.
+> opencode-mcp 3.x speaks the OpenCode 1.x API, so it needs an OpenChamber 1.x release, which fronts OpenCode 1.x. Password sign-in also needs client tokens, added in OpenChamber 1.12, so use 1.12 to 1.24. OpenChamber 2.0 and newer front OpenCode 2.x and pass its `/api/*` routes through unchanged: sign-in succeeds, but the tools then fail against routes they do not know.
+
+- `OPENCODE_OPENCHAMBER_PASSWORD`: on first use, opencode-mcp posts the UI password to `/auth/session` and receives a trusted-device client token (7 days by default). The token is kept in memory only. When a request is rejected with 401, it signs in once more and resends that request; the rejected request never reached OpenCode, so writes are not duplicated. Each MCP process gets its own client entry in OpenChamber's client list, keyed by a random identifier generated at startup, so independent MCP instances on the same host (e.g. two editor windows) never replace each other's token. Because the identifier is new on every start, each restart adds another trusted-device entry that stays valid until it expires. If your MCP client restarts the server often, set `OPENCODE_OPENCHAMBER_CLIENT_ID` to a stable value so restarts reuse one entry. Use a different value for each concurrent instance, because instances that share a value replace each other's token.
 - `OPENCODE_SERVER_TOKEN`: a client token you minted yourself. It is not renewed; replace it when it expires or is revoked.
 
 ```bash
@@ -37,7 +39,7 @@ OPENCODE_BASE_URL=https://openchamber.example.com/api
 OPENCODE_OPENCHAMBER_PASSWORD=...   # keep in your MCP client's secret store
 ```
 
-OpenChamber rate-limits sign-ins (10 attempts per 5 minutes by default, then a lockout); a wrong password reports an error instead of retrying. Treat the password and tokens as secrets: they grant the same access as the OpenChamber UI.
+OpenChamber rate-limits failed sign-ins. After 10 failures with less than 5 minutes between them, it locks out the client IP for 15 minutes, and that includes the UI from the same IP. To stay clear of this, opencode-mcp does not post a rejected password again until it is restarted. When rate limited, it waits for the `Retry-After` period. Other refusals are held for 60 seconds. Network errors and 5xx responses never reached OpenChamber's limiter, so the next call tries again. Treat the password and tokens as secrets: they grant the same access as the OpenChamber UI.
 
 ## Project Scope
 
