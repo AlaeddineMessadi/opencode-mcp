@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-10-22
+
+### Breaking changes
+
+- Require an OpenCode 2.x server (tested against 2.1.2). All requests use the `/api/*` server API through the `@opencode-ai/sdk` v2 client (`^1.19.3`, `./v2/client`). An OpenCode 1.x server is detected at startup and rejected with an upgrade message; stay on 3.x to keep using OpenCode 1.x.
+- OpenCode 2.x always enforces HTTP Basic authentication. For an external server, `OPENCODE_SERVER_PASSWORD` must match the server's password (username `opencode` by default); a server started without one prints a generated password at startup. A rejected password now produces an explicit credentials error.
+- Remove prompt-level structured output. OpenCode 2.x dropped response formats, so the `format` parameter is gone from `opencode_ask`, `opencode_reply`, `opencode_run`, `opencode_fire`, `opencode_provider_test`, `opencode_message_send`, and `opencode_message_send_async`. Ask for machine-readable output in the prompt text instead.
+- `opencode_question_reply` now answers an OpenCode 2.x form: it takes `answer`, an object keyed by form field key, instead of `answers`. It and `opencode_question_reject` accept an optional `sessionId`, looked up from the pending form list when omitted.
+- Tool parameter changes following the 2.x API:
+  - `opencode_message_send` drops `noReply` and `system`, and adds `timeoutMs`; `opencode_ask` drops `system`.
+  - `opencode_command_execute` drops `agent`, `providerID`, `modelID`, and `variant`; `opencode_shell_execute` drops `agent`, `providerID`, and `modelID`.
+  - `opencode_session_summarize` compacts a session and no longer takes a provider/model/variant.
+  - `opencode_session_revert` replaces `partID` with `files`; `opencode_session_unrevert` discards staged revert changes.
+  - `opencode_find_text` matches file and directory paths; OpenCode 2.x has no line-level text search. `opencode_find_file` drops `searchDirectory`.
+  - `opencode_auth_set` drops `type` and adds an optional `label`. `opencode_provider_oauth_authorize` takes an optional `methodID` instead of `method`/`inputs`; `opencode_provider_oauth_callback` takes `attemptID` and an optional `code` instead of `callbackData`.
+  - `opencode_config_update` is limited to the fields OpenCode 2.x can patch (currently `shell`).
+
+### Changed
+
+- Select models per session. New sessions are created with the chosen model; passing a model or `variant` for an existing session switches its model for later turns.
+- Submit prompts to OpenCode's asynchronous session inbox and correlate completion with the idle marker that closes the submitted turn. Interrupted and failed turns map to `cancelled` and `failed`.
+- Questions are backed by OpenCode 2.x forms. Job input still takes one answer array per field in field order and maps it to field keys, option values, booleans, and numbers.
+- Cancellation (`opencode_job_cancel`, `opencode_session_abort`) uses OpenCode's session interrupt. `opencode_session_abort` adds an optional `resume` flag.
+- `opencode_session_create` accepts optional `agent`, `providerID`, and `modelID`; `opencode_session_permission` accepts an optional `message`.
+- Health checks use `GET /api/info`. Events come from the single `/api/event` stream, scoped by directory for project polling and unscoped for global polling.
+- `OPENCODE_AUTO_SERVE=true` now spawns `opencode serve` directly with a randomly generated private password instead of using the SDK launcher.
+- The 3.1.0 OpenChamber sign-in and `OPENCODE_SERVER_TOKEN` bearer auth carry over and apply to API requests, the `/api/event` stream and the `/api/info` probe. They need OpenChamber 2.0 or newer, which fronts OpenCode 2.x and passes `/api/*` through unchanged.
+
+### Removed
+
+- Tools without an OpenCode 2.x equivalent: `opencode_find_symbol`, `opencode_formatter_status`, `opencode_instance_dispose`, `opencode_log`, `opencode_lsp_status`, `opencode_session_init`, `opencode_session_share`, `opencode_session_todo`, `opencode_session_unshare`, `opencode_tool_ids`, and `opencode_tool_list`.
+- All nine TUI control tools (`opencode_tui_*`).
+- The OpenCode 1.18.31 response-format history-serialization workaround and the `StructuredOutput` permission guidance.
+- Tool count: 67 in the full profile (down from 87); the essential profile still exposes 25.
+
+### Migration notes
+
+- Upgrade OpenCode to 2.x and restart its server before upgrading the MCP.
+- Set `OPENCODE_SERVER_PASSWORD` in the MCP client environment to the server's password, or use `OPENCODE_AUTO_SERVE=true` for a local child server.
+- Remove `format` arguments from prompt calls and request the desired output shape in the prompt. Replace calls to removed tools; session todos are no longer exposed.
+- Update direct `opencode_question_reply` callers to send `answer: {"<field-key>": value}`. Use `opencode_question_list` to inspect field keys. `opencode_job_input` responses are unchanged.
+- Passing a model on a follow-up now changes the session's model for later turns, not only the current prompt.
+- OpenChamber users: upgrade to OpenChamber 2.0 or newer and drop the `/api` suffix from `OPENCODE_BASE_URL`.
+
 ## [3.1.0] - 2026-10-29
 
 This release supports OpenCode 1.x only and was tested with OpenCode 1.19.3. OpenCode 2.x servers are not supported in 3.x; support is planned for 4.0.

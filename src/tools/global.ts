@@ -5,17 +5,17 @@ import { toolResult, toolError, directoryParam, readOnly } from "../helpers.js";
 export function registerGlobalTools(server: McpServer, client: OpenCodeClient) {
   server.tool(
     "opencode_health",
-    "Check server health and version",
+    "Check OpenCode 2.x server health and version",
     {
       directory: directoryParam,
     },
     readOnly,
     async ({ directory }) => {
       try {
-        const raw = await client.get("/global/health", undefined, directory) as Record<string, unknown>;
-        const status = raw.healthy ? "healthy" : "unhealthy";
-        const version = raw.version ?? "unknown";
-        return toolResult(`Status: ${status}\nVersion: ${version}`);
+        const info = await client.get("/api/info", undefined, directory) as Record<string, unknown>;
+        const version = info?.version ?? "unknown";
+        const urls = Array.isArray(info?.urls) ? (info.urls as string[]).join(", ") : "unknown";
+        return toolResult(`Status: healthy\nVersion: ${version}\nURLs: ${urls}`);
       } catch (e) {
         return toolError(e);
       }

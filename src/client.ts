@@ -1,6 +1,6 @@
-import { createOpencodeClient, OpencodeClient as NativeClient } from "@opencode-ai/sdk";
+import { createOpencodeClient, OpencodeClient as NativeClient } from "@opencode-ai/sdk/v2/client";
 import { normalizeDirectory } from "./helpers.js";
-import { ensureServer, isServerRunning } from "./server-manager.js";
+import { ensureServer, isServerRunning, type ServerStatus } from "./server-manager.js";
 import { AuthProvider } from "./auth.js";
 import { createRequestContext, abortableSleep, throwIfAborted, withAbort, type RequestOptions } from "./async.js";
 export type { RequestOptions } from "./async.js";
@@ -18,6 +18,23 @@ export interface OpenCodeClientOptions {
   /** Overrides the per-process OpenChamber dedupe scope (`OPENCODE_OPENCHAMBER_CLIENT_ID`). */
   clientId?: string;
   autoServe?: boolean;
+}
+
+/**
+ * OpenCode 2.x wraps most `/api/*` JSON payloads in an envelope of the form
+ * `{ data: ... }` (location-scoped endpoints add `location`, paginated ones add
+ * `cursor`). The MCP tools consume the inner payload, so unwrap it here once;
+ * pagination cursors are dropped.
+ */
+function unwrapV2Envelope<T>(path: string, body: T): T {
+  if (typeof path !== "string" || !path.startsWith("/api/") || body === null || typeof body !== "object" || Array.isArray(body)) return body;
+  // Raw file reads return arbitrary JSON bodies; a file containing {"data": ...}
+  // must not be mistaken for an envelope.
+  if (path.startsWith("/api/fs/read/")) return body;
+  const keys = Object.keys(body as Record<string, unknown>);
+  if (keys.length === 0 || keys.length > 3 || !keys.includes("data")) return body;
+  if (keys.some((key) => key !== "data" && key !== "location" && key !== "cursor")) return body;
+  return (body as unknown as { data: T }).data;
 }
 
 export class OpenCodeError extends Error {
@@ -95,12 +112,36 @@ export class OpenCodeClient {
   }
 
   /**
+   * Target a server started by this process (auto-serve). It only accepts its
+   * generated Basic password, so that replaces any configured token or sign-in.
+   */
+  adoptServer(url: string, password?: string): void {
+    this.baseUrl = url.replace(/\/$/, "");
+    if (password) {
+      this.password = password;
+      this.auth = new AuthProvider({ username: this.username, password }, this.baseUrl);
+    }
+    this.api = this.buildSdkClient();
+  }
+
+  /** Startup: find (or, with auto-serve, start) the server and adopt a generated password. */
+  async connect(): Promise<ServerStatus> {
+    const status = await ensureServer({
+      baseUrl: this.baseUrl, autoServe: this.autoServe, username: this.username, password: this.password,
+      authorization: await this.auth.getHeader(),
+    });
+    if (status.password) this.adoptServer(status.url ?? this.baseUrl, status.password);
+    return status;
+  }
+
+  /**
    * Rebuild the SDK client against the current `baseUrl` + auth state. Used
    * by the constructor and by the reconnect path when `ensureServer()`
    * surfaces a different URL than the one we were aiming at.
    */
   private buildSdkClient(): NativeClient {
-    return createOpencodeClient({ baseUrl: this.baseUrl, fetch: (request: Request) => this.auth.fetch(request) });
+    // The v2 SDK types `fetch` as `typeof fetch` but always calls it with a single Request.
+    return createOpencodeClient({ baseUrl: this.baseUrl, fetch: ((request: Request) => this.auth.fetch(request)) as typeof fetch });
   }
 
   getBaseUrl(): string {
@@ -130,7 +171,7 @@ export class OpenCodeClient {
         throwIfAborted(context.signal);
         if (attempt > 0) await abortableSleep(BASE_DELAY_MS * Math.pow(2, attempt - 1), context.signal);
         try {
-          const apiClient = (this.api as any)._client;
+          const apiClient = (this.api as any).client;
           submitted = true;
           const res = await withAbort(apiClient[method.toLowerCase()]({
             url: path, query: opts.query,
@@ -139,13 +180,20 @@ export class OpenCodeClient {
           }), context.signal) as any;
           // The SDK may return an error object after fetch was aborted.
           throwIfAborted(context.signal);
-          if (res.error || (res.response && !res.response.ok && res.response.status >= 400)) {
-            const status = res.response?.status || 500;
+          if (res.response && !res.response.ok && res.response.status >= 400) {
+            // The server answered with a definitive rejection.
+            const status = res.response.status;
             const bodyStr = typeof res.error === "string" ? res.error : JSON.stringify(res.error ?? {});
             throw new OpenCodeError(`${method} ${path} failed (${status}): ${bodyStr}`, status, method, path, bodyStr);
           }
+          if (res.error !== undefined && res.error !== null) {
+            // No response arrived (connection loss, terminated socket). Preserve
+            // the transport error so connection classification, read retries and
+            // write-submission ambiguity keep their original semantics.
+            throw res.error instanceof Error ? res.error : new Error(String(res.error));
+          }
           this.reconnectAttempts = 0;
-          return res.data as T;
+          return unwrapV2Envelope<T>(path, res.data as T);
         } catch (e) {
           // Writes may already have been accepted. No generic HTTP status,
           // disconnect or timeout proves it is safe to send them a second time.
@@ -171,13 +219,8 @@ export class OpenCodeClient {
             const ensured = await withAbort(ensureServer({
               baseUrl: this.baseUrl, autoServe: true, username: this.username, password: this.password, authorization,
             }), context.signal);
-            if (ensured.url) {
-              const nextUrl = ensured.url.replace(/\/$/, "");
-              if (nextUrl !== this.baseUrl) {
-                this.baseUrl = nextUrl;
-                this.api = this.buildSdkClient();
-              }
-            }
+            // A server started by ensureServer carries its own generated password.
+            if (ensured.url) this.adoptServer(ensured.url, ensured.password);
           }
           return await this.request<T>(method, path, { ...opts, signal: context.signal, deadline: context.deadline });
         } catch (e) {
@@ -259,7 +302,17 @@ export class OpenCodeClient {
             throw new Error("SSE event exceeds the 1MB limit");
           }
           if (line === "") {
-            if (data.length > 0) yield { event: event || "message", data: data.join("\n") };
+            if (data.length > 0) {
+              const joined = data.join("\n");
+              // OpenCode 2.x emits SSE without `event:` lines; the event name
+              // lives in the JSON `type` field. Surface it as the event name so
+              // consumers keep a uniform `{event, data}` shape.
+              let name = event || "";
+              if (!name) {
+                try { const parsed = JSON.parse(joined); if (typeof parsed?.type === "string") name = parsed.type; } catch { /* not JSON */ }
+              }
+              yield { event: name || "message", data: joined };
+            }
             event = "";
             data = [];
           } else if (!line.startsWith(":")) {

@@ -1,6 +1,6 @@
 # Usage Examples
 
-These examples describe version 3.1.0. Replace provider/model placeholders with IDs discovered from `opencode_setup` and `opencode_provider_models`. All `directory` values refer to absolute paths on the OpenCode server.
+These examples describe version 4.0.0 against an OpenCode 2.x server. Replace provider/model placeholders with IDs discovered from `opencode_setup` and `opencode_provider_models`. All `directory` values refer to absolute paths on the OpenCode server.
 
 ## Quick Question and Follow-Up
 
@@ -21,7 +21,7 @@ opencode_reply({
 })
 ```
 
-If both default provider/model environment variables are configured, you may omit them from individual calls. An optional `variant` selects an available model variant; use a value supported by the chosen provider/model.
+If both default provider/model environment variables are configured, you may omit them from individual calls. An optional `variant` selects an available model variant; use a value supported by the chosen provider/model. OpenCode 2.x stores the model on the session, so a model or variant passed to `opencode_reply` switches the session for later turns as well.
 
 ## Background Work and Recovery
 
@@ -44,7 +44,7 @@ opencode_job_get({ jobId: "<returned-job-id>" })
 
 After an MCP restart, use `opencode_job_list` to rediscover retained jobs. A durable handle helps resume observation; it does not restart a stopped OpenCode server or replay an interrupted prompt.
 
-Use `opencode_job_cancel({jobId: "<returned-job-id>"})` to request cancellation. For a session without a recorded job, use `opencode_session_abort` with its session ID and directory.
+Use `opencode_job_cancel({jobId: "<returned-job-id>"})` to request cancellation. For a session without a recorded job, use `opencode_session_abort` with its session ID and directory; it calls OpenCode 2.x's session interrupt.
 
 ## Wait Without Losing the Handle
 
@@ -82,42 +82,9 @@ opencode_job_input({
 })
 ```
 
-Question answers are an array per question, each containing the selected answers. To reject a question, send `{id: "<request-id>", kind: "question", reject: true}`. Permission replies are `once`, `always`, or `reject`; choose them according to the user's decision.
+OpenCode 2.x presents questions as forms. Question answers are an array per form field, in field order, each containing the selected answers; the MCP maps them to the form's field keys and resolves option labels to option values. Boolean fields take `"true"` or `"false"`; number fields take a numeric string. To reject (dismiss) a question, send `{id: "<request-id>", kind: "question", reject: true}`. Permission replies are `once`, `always`, or `reject`; choose them according to the user's decision.
 
-Lower-level callers can use `opencode_question_list`, `opencode_question_reply({requestId, answers, directory})`, and `opencode_question_reject({requestId, directory})`. Existing `opencode_permission_list` and `opencode_session_permission` remain available.
-
-## Request Structured Model Output
-
-```javascript
-opencode_run({
-  directory: "/home/user/project",
-  prompt: "Summarize the project using the requested schema",
-  providerID: "<configured-provider>",
-  modelID: "<available-model>",
-  format: {
-    type: "json_schema",
-    schema: {
-      type: "object",
-      properties: { summary: { type: "string" } },
-      required: ["summary"],
-      additionalProperties: false
-    },
-    retryCount: 2
-  }
-})
-```
-
-`format` is forwarded to OpenCode. `{type: "text"}` requests ordinary text. Model-generated structured output and MCP `structuredContent` serve different purposes: the former shapes the model's answer; the latter carries the tool's machine-readable status and result fields.
-
-OpenCode produces the answer by calling its `StructuredOutput` tool. If the project's permission policy denies all tools, explicitly allow this tool in `opencode.json`:
-
-```json
-{ "permission": { "*": "deny", "StructuredOutput": "allow" } }
-```
-
-This policy is suitable for an output-only task. Add permissions for the reads or edits your task needs. The MCP does not change permissions automatically. Denying `StructuredOutput` can leave a JSON-schema prompt running without producing an answer; an observation timeout does not stop inference. Explicitly abort an owned session when abandoning a run.
-
-OpenCode 1.18.31 can return HTTP 400 when reading history containing a persisted response format. When a job/message ID is known, async observation retries a read of only the latest message and accepts a completed answer only if its parent matches that ID. If it cannot prove completion, it reports `unknown` and does not expose pending inputs from incomplete history. Keep polling the same job rather than resubmitting. Full history and cancellation ownership checks can still fail on the upstream serialization error; use the low-level session abort only after confirming that you own its current work.
+Lower-level callers can use `opencode_question_list`, `opencode_question_reply({requestId, answer, directory})`, and `opencode_question_reject({requestId, directory})`. For `opencode_question_reply`, `answer` is an object keyed by form field key, for example `{"<field-key>": "<value>"}`; multiselect fields take an array of strings. Both tools accept an optional `sessionId`; when omitted, the owning session is looked up from the pending form list. Existing `opencode_permission_list` and `opencode_session_permission` remain available.
 
 ## Independent Projects and Parallel Work
 

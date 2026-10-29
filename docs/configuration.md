@@ -2,13 +2,13 @@
 
 ## Environment Variables
 
-An OpenCode server must already be running unless automatic startup is explicitly enabled. Node.js 22 or newer is required for version 3.0.0 and later.
+An OpenCode 2.x server must already be running unless automatic startup is explicitly enabled. Version 4.0.0 requires OpenCode 2.x; a 1.x server is detected at startup and rejected with an upgrade message. Node.js 22 or newer is required for version 3.0.0 and later.
 
 | Variable | Default | Description |
 |---|---|---|
 | `OPENCODE_BASE_URL` | `http://127.0.0.1:4096` | OpenCode HTTP endpoint |
-| `OPENCODE_SERVER_USERNAME` | `opencode` | Username when HTTP authentication is enabled |
-| `OPENCODE_SERVER_PASSWORD` | unset | HTTP password; set matching credentials on OpenCode and MCP |
+| `OPENCODE_SERVER_USERNAME` | `opencode` | HTTP Basic authentication username |
+| `OPENCODE_SERVER_PASSWORD` | unset | HTTP Basic authentication password; must match the external server's password. Ignored for a server started with `OPENCODE_AUTO_SERVE` |
 | `OPENCODE_SERVER_TOKEN` | unset | Bearer token sent as `Authorization: Bearer <token>`; replaces Basic auth |
 | `OPENCODE_OPENCHAMBER_PASSWORD` | unset | OpenChamber UI password, exchanged for a client token; see below |
 | `OPENCODE_OPENCHAMBER_URL` | origin of `OPENCODE_BASE_URL` | OpenChamber origin that serves `/auth/session` |
@@ -19,23 +19,27 @@ An OpenCode server must already be running unless automatic startup is explicitl
 | `OPENCODE_TOOL_PROFILE` | `full` | `full` or `essential`; changes the advertised tool set |
 | `OPENCODE_TASK_STORE` | see below | Root directory for persisted job records |
 
-Choose provider/model IDs from `opencode_setup` and `opencode_provider_models`. Authentication credentials are global to OpenCode; `directory` does not make provider credentials project-specific.
+Choose provider/model IDs from `opencode_setup` and `opencode_provider_models`. OpenCode 2.x stores the model on the session: new sessions are created with the selected model, and passing a model (or `variant`) for an existing session switches it for later turns. Authentication credentials are global to OpenCode; `directory` does not make provider credentials project-specific.
 
-The `essential` profile keeps the common delegation, observation, and required-input workflows available with fewer tool definitions. Select `full` for low-level API tools, TUI control, or provider administration. The profile is a discovery choice, not a security boundary: coding workflows can still modify files or run commands through OpenCode according to its permissions.
+### Server Authentication
+
+OpenCode 2.x always enforces HTTP Basic authentication. For an external server, start it with `OPENCODE_SERVER_PASSWORD` set and give the MCP the same value. If the server was started without one, OpenCode prints a generated password at startup; copy that value into the MCP's `OPENCODE_SERVER_PASSWORD`. A rejected password produces an explicit credentials error (HTTP 401) rather than a generic connection failure. Keep the password in the client's environment or secret settings, not in shared project configuration.
+
+The `essential` profile keeps the common delegation, observation, and required-input workflows available with fewer tool definitions. Select `full` for low-level API tools or provider administration. The profile is a discovery choice, not a security boundary: coding workflows can still modify files or run commands through OpenCode according to its permissions.
 
 Job records hold local operational metadata and results, independent of OpenCode's session storage. The default root is `$XDG_STATE_HOME/opencode-mcp/tasks` (falling back to `~/.local/state/opencode-mcp/tasks`); Windows uses `%LOCALAPPDATA%/opencode-mcp/tasks`. Records are partitioned by server and caller scope. Records expire 24 hours after creation; expiry removes the handle and does not abort the OpenCode session. Keep the task store private to your user account and persist it if the MCP process is ephemeral. See [architecture](architecture.md) for recovery behavior and retention.
 
 ## OpenChamber
 
-[OpenChamber](https://github.com/openchamber/openchamber) proxies OpenCode under `/api` and rejects Basic auth. Point `OPENCODE_BASE_URL` at the proxy and choose one credential:
+[OpenChamber](https://github.com/openchamber/openchamber) fronts OpenCode and rejects Basic auth. Point `OPENCODE_BASE_URL` at the OpenChamber origin and choose one credential:
 
-> opencode-mcp 3.x speaks the OpenCode 1.x API, so it needs an OpenChamber 1.x release, which fronts OpenCode 1.x. Password sign-in also needs client tokens, added in OpenChamber 1.12, so use 1.12 to 1.24. OpenChamber 2.0 and newer front OpenCode 2.x and pass its `/api/*` routes through unchanged: sign-in succeeds, but the tools then fail against routes they do not know.
+> opencode-mcp 4.x speaks the OpenCode 2.x API, so it needs OpenChamber 2.0 or newer, which fronts OpenCode 2.x and passes its `/api/*` routes through unchanged. opencode-mcp 3.x speaks the OpenCode 1.x API and needs OpenChamber 1.12 to 1.24 (1.x proxies OpenCode under `/api`, so 3.x sets `OPENCODE_BASE_URL` to `https://openchamber.example.com/api`).
 
 - `OPENCODE_OPENCHAMBER_PASSWORD`: on first use, opencode-mcp posts the UI password to `/auth/session` and receives a trusted-device client token (7 days by default). The token is kept in memory only. When a request is rejected with 401, it signs in once more and resends that request; the rejected request never reached OpenCode, so writes are not duplicated. Each MCP process gets its own client entry in OpenChamber's client list, keyed by a random identifier generated at startup, so independent MCP instances on the same host (e.g. two editor windows) never replace each other's token. Because the identifier is new on every start, each restart adds another trusted-device entry that stays valid until it expires. If your MCP client restarts the server often, set `OPENCODE_OPENCHAMBER_CLIENT_ID` to a stable value so restarts reuse one entry. Use a different value for each concurrent instance, because instances that share a value replace each other's token.
 - `OPENCODE_SERVER_TOKEN`: a client token you minted yourself. It is not renewed; replace it when it expires or is revoked.
 
 ```bash
-OPENCODE_BASE_URL=https://openchamber.example.com/api
+OPENCODE_BASE_URL=https://openchamber.example.com
 OPENCODE_OPENCHAMBER_PASSWORD=...   # keep in your MCP client's secret store
 ```
 
@@ -49,19 +53,19 @@ For project-scoped tools, `directory` must be an absolute path on the OpenCode s
 
 ## MCP Client Configurations
 
-These examples launch the published npm package. When testing a source build, replace the command with `node` and the arguments with the absolute path to your built `dist/index.js`. Modern MCP extensions are negotiated; support for tools does not imply that a client supports tasks or interactive input.
+These examples launch the published npm package. When testing a source build, replace the command with `node` and the arguments with the absolute path to your built `dist/index.js`. Modern MCP extensions are negotiated; support for tools does not imply that a client supports tasks or interactive input. Unless `OPENCODE_AUTO_SERVE=true`, add `OPENCODE_SERVER_PASSWORD` to each server entry's environment using the client's environment or secret mechanism.
 
 ### Claude Code
 
 ```bash
 # Current project, private to your account
-claude mcp add opencode -- npx -y opencode-mcp
+claude mcp add opencode --env OPENCODE_SERVER_PASSWORD=<server-password> -- npx -y opencode-mcp
 
 # Available across projects
-claude mcp add opencode --scope user -- npx -y opencode-mcp
+claude mcp add opencode --scope user --env OPENCODE_SERVER_PASSWORD=<server-password> -- npx -y opencode-mcp
 
 # Custom endpoint
-claude mcp add opencode --env OPENCODE_BASE_URL=http://127.0.0.1:8080 -- npx -y opencode-mcp
+claude mcp add opencode --env OPENCODE_BASE_URL=http://127.0.0.1:8080 --env OPENCODE_SERVER_PASSWORD=<server-password> -- npx -y opencode-mcp
 ```
 
 See [Claude Code MCP configuration](https://code.claude.com/docs/en/mcp) for scopes and environment expansion.
@@ -76,7 +80,7 @@ Use the following server entry in the client's MCP configuration:
     "opencode": {
       "command": "npx",
       "args": ["-y", "opencode-mcp"],
-      "env": { "OPENCODE_TOOL_PROFILE": "essential" }
+      "env": { "OPENCODE_SERVER_PASSWORD": "<server-password>", "OPENCODE_TOOL_PROFILE": "essential" }
     }
   }
 }
@@ -154,9 +158,9 @@ OpenCode can pause a session for permission or a question. Async observation rep
 |---|---|
 | `opencode_permission_list` | Inspect pending permission requests in a project |
 | `opencode_session_permission` | Reply `once`, `always`, or `reject` |
-| `opencode_question_list` | Inspect pending questions |
-| `opencode_question_reply` | Provide selected answers |
-| `opencode_question_reject` | Dismiss a pending question |
+| `opencode_question_list` | Inspect pending questions (OpenCode 2.x forms) |
+| `opencode_question_reply` | Answer a form with one value per field key |
+| `opencode_question_reject` | Dismiss a pending form |
 
 When supported by the client, job input can present an interactive request. These tools never silently approve permissions. Set a deliberate permission policy in the project's `opencode.json`; blanket `"permission": "allow"` is an optional policy choice, not a prerequisite for headless use.
 
@@ -165,11 +169,11 @@ When supported by the client, job input can present an interactive request. Thes
 Start a server explicitly:
 
 ```bash
-opencode serve --hostname 127.0.0.1 --port 4096
+OPENCODE_SERVER_PASSWORD=<choose-a-password> opencode serve --hostname 127.0.0.1 --port 4096
 ```
 
-Or share the TUI's server by starting it with `opencode --port 4096`. For custom flags, start OpenCode manually. `OPENCODE_SERVE_ARGS` is unsupported by the SDK launcher.
+Or share the TUI's server by starting it with `opencode --port 4096`. For custom flags, start OpenCode manually. `OPENCODE_SERVE_ARGS` is unsupported.
 
-To opt in to a separate local child server, add `"OPENCODE_AUTO_SERVE": "true"` under your MCP server's `env`. Automatic startup accepts loopback HTTP endpoints only and shuts down only the child it launched. An existing external server remains running when the MCP client disconnects.
+To opt in to a separate local child server, add `"OPENCODE_AUTO_SERVE": "true"` under your MCP server's `env`. The MCP then runs `opencode serve` itself with a randomly generated private password, so no password configuration is needed. Automatic startup requires `opencode` on the MCP process's PATH, accepts loopback HTTP endpoints only, and shuts down only the child it launched. An existing external server remains running when the MCP client disconnects.
 
 When other TUI instances are running, prefer a shared explicitly configured server. [Issue #18](https://github.com/AlaeddineMessadi/opencode-mcp/issues/18) reports hangs when a second server shares OpenCode storage; the underlying cause has not been confirmed. MCP does not scan processes to select a TUI.

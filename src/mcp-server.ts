@@ -11,10 +11,10 @@ export type ToolProfile = "full" | "essential";
 
 const readers = new Set(`health setup status context conversation sessions_overview check wait review_changes
   config_get config_providers provider_list provider_models provider_auth_methods
-  session_list session_get session_children session_status session_todo session_diff session_search permission_list
-  message_list message_get find_text find_file find_symbol file_list file_read file_status
-  project_list project_current path_get vcs_info agent_list command_list lsp_status formatter_status
-  mcp_status tool_ids tool_list events_poll question_list job_get job_list`.split(/\s+/).map(n => `opencode_${n}`));
+  session_list session_get session_children session_status session_diff session_search permission_list
+  message_list message_get find_text find_file file_list file_read file_status
+  project_list project_current path_get vcs_info agent_list command_list
+  mcp_status events_poll question_list job_get job_list`.split(/\s+/).map(n => `opencode_${n}`));
 const essential = new Set(`setup provider_list provider_models ask reply run fire check wait conversation review_changes context status
   session_abort session_create session_list permission_list session_permission question_list question_reply question_reject
   job_get job_list job_cancel job_input`.split(/\s+/).map(n => `opencode_${n}`));

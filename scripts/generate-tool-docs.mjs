@@ -21,7 +21,6 @@ const groups = [
   ["File & Search Tools", (n) => /^opencode_(file_|find_)/.test(n)],
   ["Config Tools", (n) => n.startsWith("opencode_config_")],
   ["Provider & Auth Tools", (n) => /^opencode_(provider_|auth_)/.test(n)],
-  ["TUI Control Tools", (n) => n.startsWith("opencode_tui_")],
   ["Project Tools", (n) => n.startsWith("opencode_project_")],
   ["Event Tools", (n) => n.startsWith("opencode_events_")],
   ["Global Tools", (n) => n === "opencode_health"],

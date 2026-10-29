@@ -27,8 +27,8 @@ describe("bounded HTTP requests and safe retries", () => {
       request.resume();
       request.on("end", () => { accepted++; request.socket.destroy(); });
     });
-    await expect(client[method]("/session/fixture")).rejects.toMatchObject({
-      name: "OpenCodeSubmissionError", submissionOutcome: "unknown", method: method.toUpperCase(), path: "/session/fixture",
+    await expect(client[method]("/api/session/fixture")).rejects.toMatchObject({
+      name: "OpenCodeSubmissionError", submissionOutcome: "unknown", method: method.toUpperCase(), path: "/api/session/fixture",
     });
     expect(accepted).toBe(1);
   });
@@ -37,9 +37,9 @@ describe("bounded HTTP requests and safe retries", () => {
     let attempts = 0;
     const client = await fixture((_req, res) => {
       attempts++;
-      res.writeHead(503, { "content-type": "application/json" }).end('{"error":"temporarily unavailable"}');
+      res.writeHead(503, { "content-type": "application/json" }).end('{"_tag":"ServiceUnavailable","message":"temporarily unavailable"}');
     });
-    await expect(client.post("/session")).rejects.toBeInstanceOf(OpenCodeError);
+    await expect(client.post("/api/session")).rejects.toBeInstanceOf(OpenCodeError);
     expect(attempts).toBe(1);
   });
 
@@ -47,9 +47,9 @@ describe("bounded HTTP requests and safe retries", () => {
     let attempts = 0;
     const client = await fixture((req, res) => {
       if (++attempts === 1) { req.socket.destroy(); return; }
-      res.writeHead(200, { "content-type": "application/json" }).end('{"ok":true}');
+      res.writeHead(200, { "content-type": "application/json" }).end('{"data":{"ses_1":{"type":"busy"}}}');
     });
-    await expect(client.get("/session/status")).resolves.toEqual({ ok: true });
+    await expect(client.get("/api/session/active")).resolves.toEqual({ ses_1: { type: "busy" } });
     expect(attempts).toBe(2);
   });
 
@@ -57,9 +57,9 @@ describe("bounded HTTP requests and safe retries", () => {
     let attempts = 0;
     const client = await fixture((_req, res) => {
       const status = ++attempts === 1 ? 503 : 200;
-      res.writeHead(status, { "content-type": "application/json" }).end('{"ok":true}');
+      res.writeHead(status, { "content-type": "application/json" }).end('{"data":{"ses_1":{"type":"busy"}}}');
     });
-    await expect(client.get("/session/status")).resolves.toEqual({ ok: true });
+    await expect(client.get("/api/session/active")).resolves.toEqual({ ses_1: { type: "busy" } });
     expect(attempts).toBe(2);
   });
 
@@ -71,7 +71,7 @@ describe("bounded HTTP requests and safe retries", () => {
       res.writeHead(503, { "content-type": "application/json" }).end('{}');
       setTimeout(() => controller.abort(), 40);
     });
-    await expect(client.get("/session/status", undefined, undefined, { signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
+    await expect(client.get("/api/session/active", undefined, undefined, { signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
     expect(attempts).toBe(1);
   });
 
@@ -80,8 +80,8 @@ describe("bounded HTTP requests and safe retries", () => {
     const client = await fixture((req) => { attempts++; req.resume(); });
     const options = { deadline: Date.now() + 100 };
     const started = Date.now();
-    const request = method === "post" ? client.post("/session", {}, options)
-      : client[method]("/session", undefined, undefined, options);
+    const request = method === "post" ? client.post("/api/session", {}, options)
+      : client[method]("/api/session", undefined, undefined, options);
     await expect(request).rejects.toSatisfy((error: Error) =>
       method === "get" ? error.name === "TimeoutError" : error instanceof OpenCodeSubmissionError && (error.cause as Error).name === "TimeoutError");
     expect(Date.now() - started).toBeLessThan(1000);
@@ -93,7 +93,7 @@ describe("bounded HTTP requests and safe retries", () => {
     const client = await fixture((_req, res) => { attempts++; res.end(); });
     const controller = new AbortController();
     controller.abort();
-    await expect(client.post("/session", {}, { signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
+    await expect(client.post("/api/session", {}, { signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
     expect(attempts).toBe(0);
   });
 
@@ -104,7 +104,7 @@ describe("bounded HTTP requests and safe retries", () => {
       res.writeHead(503, { "content-type": "application/json" }).end('{}');
     });
     const started = Date.now();
-    await expect(client.get("/session/status", undefined, undefined, { timeout: 200 })).rejects.toMatchObject({ name: "TimeoutError" });
+    await expect(client.get("/api/session/active", undefined, undefined, { timeout: 200 })).rejects.toMatchObject({ name: "TimeoutError" });
     expect(Date.now() - started).toBeLessThan(1000);
     expect(attempts).toBe(1);
   });
@@ -124,11 +124,11 @@ describe("SSE lifetime and framing", () => {
     const client = await fixture((req, res) => {
       directory = req.headers["x-opencode-directory"] as string;
       res.writeHead(200, { "content-type": "text/event-stream" });
-      res.write('data: first\n\n');
+      res.write('data: {"id":"evt_1","type":"server.connected","data":{}}\n\n');
       res.on("close", closed);
     });
-    for await (const event of client.subscribeSSE("/event", { directory: "/remote/project" })) {
-      expect(event.data).toBe("first");
+    for await (const event of client.subscribeSSE("/api/event", { directory: "/remote/project" })) {
+      expect(event).toEqual({ event: "server.connected", data: '{"id":"evt_1","type":"server.connected","data":{}}' });
       break;
     }
     await didClose;
@@ -142,7 +142,7 @@ describe("SSE lifetime and framing", () => {
     })));
     const client = new OpenCodeClient({ baseUrl: "http://localhost:4096" });
     const events = [];
-    for await (const event of client.subscribeSSE("/event")) events.push(event);
+    for await (const event of client.subscribeSSE("/api/event")) events.push(event);
     expect(events).toEqual([{ event: "ready", data: " first  \nsecond" }, { event: "message", data: "" }]);
   });
 
@@ -152,7 +152,7 @@ describe("SSE lifetime and framing", () => {
       res.flushHeaders();
     });
     await expect((async () => {
-      for await (const _ of client.subscribeSSE("/event", { timeout: 30 })) { /* no data */ }
+      for await (const _ of client.subscribeSSE("/api/event", { timeout: 30 })) { /* no data */ }
     })()).rejects.toMatchObject({ name: "TimeoutError" });
   });
 });
@@ -165,7 +165,7 @@ function eventHandler(client: OpenCodeClient) {
 
 describe("event polling results", () => {
   it("reports authentication errors instead of an empty success", async () => {
-    const client = await fixture((_req, res) => res.writeHead(401).end("fixture unauthorized"));
+    const client = await fixture((_req, res) => res.writeHead(401, { "content-type": "application/json", "www-authenticate": 'Basic realm="Secure Area"' }).end('{"_tag":"UnauthorizedError","message":"Authentication required"}'));
     const result = await eventHandler(client)({ durationMs: 200 });
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("401");
@@ -174,7 +174,7 @@ describe("event polling results", () => {
   it("returns partial events alongside connection errors", async () => {
     const client = new OpenCodeClient({ baseUrl: "http://localhost:4096" });
     vi.spyOn(client, "subscribeSSE").mockImplementation(async function* () {
-      yield { event: "message", data: '{"type":"session.busy"}' };
+      yield { event: "session.status", data: '{"id":"evt_2","type":"session.status","data":{"sessionID":"ses_1","status":{"type":"busy"}}}' };
       throw new Error("connection lost");
     });
     const result = await eventHandler(client)({ durationMs: 200 });
@@ -200,12 +200,32 @@ describe("event polling results", () => {
     expect(result.isError).toBe(true);
   });
 
-  it("supports explicit global scope and rejects a misleading project directory", async () => {
-    let path = "";
-    const client = await fixture((req, res) => { path = req.url!; res.writeHead(200, { "content-type": "text/event-stream" }).end('data: {}\n\n'); });
+  it("polls the single v2 /api/event stream, scoping projects by directory header", async () => {
+    const seen: Array<{ path: string; directory?: string }> = [];
+    const client = await fixture((req, res) => {
+      seen.push({ path: req.url!, directory: req.headers["x-opencode-directory"] as string | undefined });
+      res.writeHead(200, { "content-type": "text/event-stream" })
+        .end('data: {"id":"evt_1","type":"server.connected","data":{}}\n\n: heartbeat\n\n');
+    });
     const handler = eventHandler(client);
-    expect((await handler({ scope: "global" })).isError).not.toBe(true);
-    expect(path).toBe("/global/event");
+    const project = await handler({ directory: "/remote/project" });
+    expect(project.isError).not.toBe(true);
+    expect(project.structuredContent.events).toEqual([{ event: "server.connected", data: '{"id":"evt_1","type":"server.connected","data":{}}' }]);
+    expect(seen[0]).toEqual({ path: "/api/event", directory: "/remote/project" });
+  });
+
+  it("supports explicit global scope and rejects a misleading project directory", async () => {
+    const seen: Array<{ path: string; directory?: string }> = [];
+    const client = await fixture((req, res) => {
+      seen.push({ path: req.url!, directory: req.headers["x-opencode-directory"] as string | undefined });
+      res.writeHead(200, { "content-type": "text/event-stream" }).end('data: {}\n\n');
+    });
+    const handler = eventHandler(client);
+    const global = await handler({ scope: "global" });
+    expect(global.isError).not.toBe(true);
+    expect(global.structuredContent.scope).toBe("global");
+    expect(seen).toEqual([{ path: "/api/event", directory: undefined }]);
     expect((await handler({ scope: "global", directory: "/project" })).isError).toBe(true);
+    expect(seen).toHaveLength(1);
   });
 });

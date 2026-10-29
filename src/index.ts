@@ -5,12 +5,12 @@ import { OpenCodeClient } from "./client.js";
 import { JobService } from "./jobs.js";
 import { TaskTransport } from "./task-transport.js";
 import { createServer } from "./app.js";
-import { ensureServer, registerShutdownHandlers } from "./server-manager.js";
+import { registerShutdownHandlers } from "./server-manager.js";
 import { setModelDefaults } from "./helpers.js";
 
 async function main() {
   const baseUrl = process.env.OPENCODE_BASE_URL ?? "http://127.0.0.1:4096";
-  const username = process.env.OPENCODE_SERVER_USERNAME;
+  const username = process.env.OPENCODE_SERVER_USERNAME || "opencode";
   const password = process.env.OPENCODE_SERVER_PASSWORD;
   const token = process.env.OPENCODE_SERVER_TOKEN || undefined;
   const openchamberPassword = process.env.OPENCODE_OPENCHAMBER_PASSWORD || undefined;
@@ -22,16 +22,23 @@ async function main() {
   setModelDefaults(process.env.OPENCODE_DEFAULT_PROVIDER, process.env.OPENCODE_DEFAULT_MODEL);
   registerShutdownHandlers();
   const client = new OpenCodeClient({ baseUrl, username, password, token, openchamberPassword, openchamberUrl, clientId, autoServe });
-  const identity: unknown[] = [baseUrl, username ?? "opencode", password ?? ""];
+  // Resolve the server (and, for auto-serve, its generated password) before
+  // serving so the first request is already authenticated.
+  let effectiveUrl = baseUrl;
+  try {
+    const status = await client.connect();
+    // Only a server we started moves the URL; otherwise keep OPENCODE_BASE_URL as typed so the job scope is unchanged.
+    if (status.managedByUs && status.url) effectiveUrl = status.url;
+  } catch (error) { console.error(`Warning: ${error instanceof Error ? error.message : String(error)}`); }
+  // Hash the configured credentials, not a generated auto-serve password, so durable jobs stay visible across restarts.
+  const identity: unknown[] = [effectiveUrl, username, password ?? ""];
   if (token || openchamberPassword) identity.push(token ?? "", openchamberPassword ?? "", openchamberUrl ?? "");
   const scope = createHash("sha256").update(JSON.stringify(identity)).digest("hex");
   const jobs = new JobService(client, { storeRoot: process.env.OPENCODE_TASK_STORE, scope });
-  try { await ensureServer({ baseUrl, autoServe, username, password, authorization: await client.getAuthorization() }); }
-  catch (error) { console.error(`Warning: ${error instanceof Error ? error.message : String(error)}`); }
   serveStdio(() => createServer(client, jobs, profile), {
     legacy: "serve", transport: new TaskTransport(new StdioServerTransport(), jobs),
     onerror: error => console.error("MCP transport error:", error.message),
   });
-  console.error(`opencode-mcp v3.1.0 started (profile: ${profile})`);
+  console.error(`opencode-mcp v4.0.0 started (profile: ${profile})`);
 }
 main().catch(error => { console.error("Fatal error starting opencode-mcp:", error); process.exitCode = 1; });

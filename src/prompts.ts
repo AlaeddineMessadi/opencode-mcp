@@ -188,7 +188,7 @@ Steps:
 ## Writing Useful Requests
 - State the expected behavior, constraints, and relevant tests.
 - Use optional variant values supported by the selected model.
-- Use format: {type: "json_schema", schema: {...}} when a machine-readable model answer is needed.
+- Prompts are plain text; ask for machine-readable formats (e.g. JSON in a code block) in the prompt itself.
 
 ## Common Pitfalls
 - Use an absolute directory on the OpenCode host, including for follow-ups. A session alone is not filesystem isolation; parallel edits should use separate projects or worktrees.
