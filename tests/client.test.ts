@@ -457,6 +457,29 @@ describe("reconnect path", () => {
     expect(fetchSpy.mock.calls.map(([request]) => (request as Request).headers.get("authorization"))).toEqual([generated, generated]);
   });
 
+  it("connect() resolves the server with the configured auth and adopts an auto-served password", async () => {
+    const client = new OpenCodeClient({ baseUrl: "http://localhost:4096/", username: "alice", password: "cfg", token: "tok", autoServe: true });
+    ensureServerMock.mockResolvedValueOnce({ running: true, managedByUs: true, url: "http://127.0.0.1:4100", password: "generated-pw" });
+
+    await expect(client.connect()).resolves.toMatchObject({ url: "http://127.0.0.1:4100" });
+
+    expect(ensureServerMock).toHaveBeenCalledWith({
+      baseUrl: "http://localhost:4096", autoServe: true, username: "alice", password: "cfg", authorization: "Bearer tok",
+    });
+    expect(client.getBaseUrl()).toBe("http://127.0.0.1:4100");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response("{}", { status: 200 }));
+    await sdkClientFactory.created.at(-1)!.fetch!(new Request("http://127.0.0.1:4100/api/info"));
+    expect((fetchSpy.mock.calls[0][0] as Request).headers.get("authorization")).toBe("Basic " + Buffer.from("alice:generated-pw").toString("base64"));
+  });
+
+  it("connect() keeps the configured auth for a server it did not start", async () => {
+    const client = new OpenCodeClient({ baseUrl: "http://localhost:4096", token: "tok" });
+    ensureServerMock.mockResolvedValueOnce({ running: true, managedByUs: false, url: "http://localhost:4096" });
+    await client.connect();
+    expect(ensureServerMock).toHaveBeenCalledWith(expect.objectContaining({ autoServe: false, authorization: "Bearer tok" }));
+    expect(await client.getAuthorization()).toBe("Bearer tok");
+  });
+
   it("does not call ensureServer when the server is reachable again", async () => {
     queueFlakySdkClients(1);
     const client = new OpenCodeClient({ baseUrl: "http://localhost:4096", autoServe: true });

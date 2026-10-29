@@ -171,6 +171,7 @@ async function probeLegacy(base: string): Promise<{ healthy: boolean; legacy?: b
 export async function startServer(
   baseUrl: string,
   timeoutMs: number = 30000,
+  username: string = "opencode",
 ): Promise<{ url: string; version?: string; password?: string }> {
   const target = new URL(baseUrl);
   if (target.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(target.hostname) || target.pathname !== "/") {
@@ -185,7 +186,8 @@ export async function startServer(
   // parsing, then probe the server with the same credentials.
   const password = randomBytes(24).toString("base64url");
   const proc = spawn("opencode", ["serve", `--hostname=${hostname}`, `--port=${port}`], {
-    env: { ...process.env, OPENCODE_SERVER_PASSWORD: password },
+    // Pin the username too: the child would otherwise inherit OPENCODE_SERVER_USERNAME.
+    env: { ...process.env, OPENCODE_SERVER_USERNAME: username, OPENCODE_SERVER_PASSWORD: password },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -245,10 +247,10 @@ export async function startServer(
 
   // Wait until the server answers /api/info with our credentials.
   const deadline = Date.now() + Math.min(timeoutMs, 15000);
-  let status = await isServerRunning(url, "opencode", password);
+  let status = await isServerRunning(url, username, password);
   while (!status.healthy && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 250));
-    status = await isServerRunning(url, "opencode", password);
+    status = await isServerRunning(url, username, password);
   }
   if (!status.healthy) {
     killManagedServer();
@@ -309,7 +311,7 @@ export async function ensureServer(
   const startupKey = baseUrl.replace(/\/$/, "");
   let inFlight = startServerInFlight.get(startupKey);
   if (!inFlight) {
-    inFlight = startServer(startupKey).finally(() => {
+    inFlight = startServer(startupKey, undefined, opts.username).finally(() => {
       startServerInFlight.delete(startupKey);
     });
     startServerInFlight.set(startupKey, inFlight);

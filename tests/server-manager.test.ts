@@ -83,7 +83,9 @@ function defaultRoute(url: string, init: RequestInit): Response | Promise<Respon
   if (!server) return refused();
   if (target.pathname !== "/api/info") return spaFallback();
   const auth = (init.headers as Record<string, string> | undefined)?.Authorization;
-  return auth === basic("opencode", server.password) ? json(serverInfo("2.1.2", server.url)) : unauthorized();
+  // Like the real binary: the username comes from OPENCODE_SERVER_USERNAME, default "opencode".
+  const user = server.options.env.OPENCODE_SERVER_USERNAME ?? "opencode";
+  return auth === basic(user, server.password) ? json(serverInfo("2.1.2", server.url)) : unauthorized();
 }
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -111,6 +113,7 @@ afterEach(() => {
   stopServer();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 // ─── isServerRunning ─────────────────────────────────────────────────────
@@ -404,6 +407,14 @@ describe("ensureServer", () => {
     expect(result).toEqual({ running: true, version: "2.1.2", managedByUs: false, url: "http://127.0.0.1:4096" });
     expect(spawnMock).not.toHaveBeenCalled();
     expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining("already running"));
+  });
+
+  it("starts the child with the configured username and probes with it", async () => {
+    vi.stubEnv("OPENCODE_SERVER_USERNAME", "inherited");
+    await ensureServer({ baseUrl: "http://127.0.0.1:4096", autoServe: true, username: "alice" });
+    expect(spawned[0].options.env.OPENCODE_SERVER_USERNAME).toBe("alice");
+    const probe = fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/api/info")).at(-1)!;
+    expect((probe[1] as RequestInit).headers).toMatchObject({ Authorization: basic("alice", spawned[0].password) });
   });
 
   it("starts the server when not running and autoServe is explicitly true, returning its password", async () => {

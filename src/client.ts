@@ -1,6 +1,6 @@
 import { createOpencodeClient, OpencodeClient as NativeClient } from "@opencode-ai/sdk/v2/client";
 import { normalizeDirectory } from "./helpers.js";
-import { ensureServer, isServerRunning } from "./server-manager.js";
+import { ensureServer, isServerRunning, type ServerStatus } from "./server-manager.js";
 import { AuthProvider } from "./auth.js";
 import { createRequestContext, abortableSleep, throwIfAborted, withAbort, type RequestOptions } from "./async.js";
 export type { RequestOptions } from "./async.js";
@@ -122,6 +122,16 @@ export class OpenCodeClient {
       this.auth = new AuthProvider({ username: this.username, password }, this.baseUrl);
     }
     this.api = this.buildSdkClient();
+  }
+
+  /** Startup: find (or, with auto-serve, start) the server and adopt a generated password. */
+  async connect(): Promise<ServerStatus> {
+    const status = await ensureServer({
+      baseUrl: this.baseUrl, autoServe: this.autoServe, username: this.username, password: this.password,
+      authorization: await this.auth.getHeader(),
+    });
+    if (status.password) this.adoptServer(status.url ?? this.baseUrl, status.password);
+    return status;
   }
 
   /**

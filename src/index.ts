@@ -5,7 +5,7 @@ import { OpenCodeClient } from "./client.js";
 import { JobService } from "./jobs.js";
 import { TaskTransport } from "./task-transport.js";
 import { createServer } from "./app.js";
-import { ensureServer, registerShutdownHandlers } from "./server-manager.js";
+import { registerShutdownHandlers } from "./server-manager.js";
 import { setModelDefaults } from "./helpers.js";
 
 async function main() {
@@ -26,9 +26,9 @@ async function main() {
   // serving so the first request is already authenticated.
   let effectiveUrl = baseUrl;
   try {
-    const status = await ensureServer({ baseUrl, autoServe, username, password, authorization: await client.getAuthorization() });
-    if (status.url) effectiveUrl = status.url;
-    if (status.password) client.adoptServer(effectiveUrl, status.password);
+    const status = await client.connect();
+    // Only a server we started moves the URL; otherwise keep OPENCODE_BASE_URL as typed so the job scope is unchanged.
+    if (status.managedByUs && status.url) effectiveUrl = status.url;
   } catch (error) { console.error(`Warning: ${error instanceof Error ? error.message : String(error)}`); }
   // Hash the configured credentials, not a generated auto-serve password, so durable jobs stay visible across restarts.
   const identity: unknown[] = [effectiveUrl, username, password ?? ""];
